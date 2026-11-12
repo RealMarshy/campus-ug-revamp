@@ -1,0 +1,12 @@
+{
+  "name": "campus-ug-revamp",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "test:browser": "node tests/run-browser.cjs",
+    "benchmark": "node tests/benchmark.cjs",
+    "benchmark:recovery": "node tests/run-browser.cjs recovery-baseline recovery",
+    "sandbox": "node tests/fixture-server.cjs",
+    "test:all": "npm test && npm run test:browser && npm run benchmark"
+  }
+}

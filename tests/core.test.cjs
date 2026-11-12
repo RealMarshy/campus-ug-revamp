@@ -1,0 +1,22 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict');
+const C=require('../core.js');
+const origin='https://campusvirtual2.ug.edu.ec';
+const event={id:1,name:'Tarea',modulename:'assign',eventtype:'due',url:origin+'/mod/assign/view.php?id=5',timestart:1800000000,course:{id:2,fullname:'Curso'}};
+test('valida eventos y rechaza destinos externos y tipos no admitidos',()=>{assert.equal(C.item(event,origin).cmid,'5');for(const changes of [{url:'https://evil.test/?id=5'},{modulename:'constructor'},{id:'x'},{timestart:0},{url:'javascript:alert(1)'}])assert.equal(C.item({...event,...changes},origin),null);});
+test('pendientes caducan y actualización manual los fuerza',()=>{const s={done:false,t:100,source:'moodle'};assert.equal(C.needsCheck(s,false,200),false);assert.equal(C.needsCheck(s,true,200),true);assert.equal(C.needsCheck(s,false,100+C.CONFIG.pending),true);});
+test('completadas se conservan pero se revalidan',()=>{const s={done:true,t:100,source:'moodle'};assert.equal(C.needsCheck(s,true,200),false);assert.equal(C.needsCheck(s,false,100+C.CONFIG.completed),true);});
+test('caché dañada o esquema antiguo se reconstruye',()=>{for(const value of [null,{},[],{schema:1}])assert.deepEqual(C.clean(value,origin),C.empty());});
+test('limpia URLs manipuladas y estados inválidos',()=>{const i=C.item(event,origin),now=Date.now();const clean=C.clean({schema:2,months:{'2026-11':{t:now,items:[i,{...i,url:'https://evil.test/?id=5'}]}},auto:{'assign:5':{done:true,t:now,source:'moodle'},'assign:9':{done:true,t:now,source:'moodle'}}},origin,now);assert.equal(clean.months['2026-11'].items.length,1);assert.equal(Object.keys(clean.auto).length,2);});
+test('un snapshot histórico conserva su fecha y sus registros',()=>{const now=Date.now(),t=now-200*86400e3;const cache=C.clean({schema:2,months:{'2020-1':{t,items:[C.item(event,origin)]}}},origin,now);assert.equal(cache.months['2020-1'].t,t);assert.equal(cache.months['2020-1'].items.length,1);});
+test('integridad del manifiesto',()=>{const fs=require('fs'),path=require('path');const m=require('../manifest.json');assert.equal(m.manifest_version,3);assert.equal(m.name,'Campus UG Revamp');assert.deepEqual(m.permissions,['storage']);for(const f of [...m.content_scripts[0].js,...m.content_scripts[0].css])assert.ok(fs.existsSync(path.join(__dirname,'..',f)));});
+test('la ilustración local de Créditos conserva su integridad y solo se expone al campus',()=>{
+  const {readFileSync}=require('node:fs');
+  const {join}=require('node:path');
+  const {createHash}=require('node:crypto');
+  const resource='assets/hagalo-usted-mismo.png';
+  const {web_accessible_resources}=require('../manifest.json');
+  assert.deepEqual(web_accessible_resources,[{resources:[resource],matches:['https://*.ug.edu.ec/*']}]);
+  const hash=createHash('sha256').update(readFileSync(join(__dirname,'..',resource))).digest('hex');
+  assert.equal(hash,'1cd2b65db9d53a7b74f86a887c9f1a9420e14ff3cc1113969d1b4a70d5bd1785');
+});

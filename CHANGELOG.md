@@ -1,0 +1,57 @@
+# Historial de cambios
+
+Este historial resume las versiones locales de Revamp, derivado de [Panel de Tareas UG](https://github.com/danieIabel/campus-ug). La primera versión propuesta para GitHub Releases es 2.1.0.
+
+## 2.1.0 — Recuperación automática de errores transitorios en todas las sincronizaciones aplicables
+
+- La primera carga, las sincronizaciones habituales y Actualizar reutilizan la segunda ronda selectiva de Reverificar todo.
+- La recuperación periódica se limita a dos actividades y 25 segundos. Cede ante una acción manual y deja de despachar reintentos cuando se oculta la pestaña.
+- El resumen distingue los fallos iniciales, reintentos, recuperaciones y fallos persistentes. La reverificación individual sigue realizando una sola consulta.
+
+## 2.0.9.1
+
+- Automático toma los colores de Moodle y Dark Reader para el panel, sus controles, Personalizar y Créditos. Los cambios visuales se aplican sin reconstruir las filas.
+- El paquete de distribución incorpora una ilustración original en Créditos y conserva el comportamiento del diálogo.
+- Créditos reconoce a Daniel Abel, Jonathan Peñafiel y Kleber Arteaga e incluye enlaces a sus perfiles de GitHub.
+- Cancelar verificación se muestra en la barra de estado. La cabecera conserva su posición al iniciar, cancelar o terminar la revisión.
+
+## 2.0.9
+
+- Se incorporaron los temas Automático, Claro y Oscuro y la compatibilidad con Dark Reader.
+
+## 2.0.8
+
+- Se añadió la actualización periódica configurable y su coordinación entre pestañas de la misma cuenta.
+
+## 2.0.7
+
+- Actualizar consulta de nuevo el mes actual y los dos siguientes para detectar publicaciones recientes. El resumen indica meses consultados, reutilizados y actividades descubiertas.
+
+## 2.0.6
+
+- Se ampliaron las preferencias de presentación y los filtros. Los cambios visuales se guardan por cuenta.
+
+## 2.0.5
+
+- Reverificar todo pasó a recuperar fallos transitorios elegibles mediante una segunda pasada acotada, incluidos los timeouts.
+
+## 2.0.4
+
+- Se afinó la vigencia de las verificaciones, se incorporó el archivado operativo reversible y se amplió el entorno de Moodle simulado.
+
+## 2.0.3
+
+- Se añadió un historial persistente compatible con los datos anteriores. Los foros pasaron a control manual.
+- Se amplió el reconocimiento del primer intento de cuestionario en español.
+
+## 2.0.2
+
+- Se ampliaron las estructuras de Moodle reconocidas y se distinguieron las fases de espera HTTP y los errores de vista.
+
+## 2.0.1
+
+- Se incorporaron diagnósticos de verificaciones, clasificación de fallos y tiempos de espera para los reintentos.
+
+## 2.0.0
+
+- Primera optimización de Revamp con caché, verificaciones acotadas y coordinación de la sincronización.

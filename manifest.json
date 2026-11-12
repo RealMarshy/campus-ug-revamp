@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Campus UG Revamp",
+  "version": "2.1.0",
+  "description": "Agrega al Área personal de Moodle un panel con tareas, cuestionarios y foros: próximas, atrasadas, entregadas y pendientes.",
+  "permissions": [
+    "storage"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/hagalo-usted-mismo.png"],
+      "matches": ["https://*.ug.edu.ec/*"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.ug.edu.ec/my/*"
+      ],
+      "js": [
+        "core.js",
+        "content.js"
+      ],
+      "css": [
+        "styles.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
+
