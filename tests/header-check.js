@@ -57,7 +57,7 @@ async page=>{
   const within=()=>panel.evaluate((root,selectors)=>{
     const bounds=root.getBoundingClientRect();
     const controls=[...selectors,'[data-toggle-status]','[data-cancel]'].map(selector=>root.querySelector(selector))
-      .filter(el=>!el.hidden).map(el=>el.getBoundingClientRect());
+      .filter(el=>!el.closest('[hidden]')).map(el=>el.getBoundingClientRect());
     return controls.every((rect,i)=>rect.left>=bounds.left&&rect.right<=bounds.right+.5&&rect.right<=innerWidth+.5&&
       controls.slice(i+1).every(other=>rect.right<=other.left+.5||other.right<=rect.left+.5||
         rect.bottom<=other.top+.5||other.bottom<=rect.top+.5));
@@ -86,14 +86,13 @@ async page=>{
   await cancel.focus();
   await finish(first);
   check(same(before,await snapshot())&&(await diagnostics()).lastRun.cancelled===false,'La operación completa restaura los controles');
-  check(await status.evaluate(el=>el===document.activeElement),'Al terminar, el foco del botón desaparecido vuelve al control de estado');
+  check(await personalize.evaluate(el=>el===document.activeElement),'Al terminar, el foco vuelve a Personalizar');
   await screenshot('despues');
 
   const normal=await start(refresh);
   check(await cancel.isHidden()&&await refresh.isDisabled()&&await all.isDisabled(),'Actualizar carece de control de cancelación');
   await finish(normal);
 
-  await status.click();
   check(await panel.locator('#ugr-status').isHidden(),'El resumen puede permanecer oculto');
   const hiddenStatus=await snapshot();
   const second=await start(all,3);
@@ -105,10 +104,10 @@ async page=>{
   const cancelled=(await diagnostics()).lastRun.cancelled;
   check(cancelled&&reads===startedReads&&aborted>0,
     'Cancelar por teclado aborta la petición y detiene la revisión: '+JSON.stringify({cancelled,reads,startedReads,aborted}));
-  check(same(hiddenStatus,await snapshot())&&await status.evaluate(el=>el===document.activeElement)&&await panel.locator('#ugr-status').isHidden(),
-    'Cancelar devuelve el foco al control de estado y conserva el resumen oculto');
+  check(same(hiddenStatus,await snapshot())&&await personalize.evaluate(el=>el===document.activeElement)&&await panel.locator('#ugr-status').isHidden(),
+    'Cancelar devuelve el foco a Personalizar y conserva el resumen oculto');
   check(await refresh.isEnabled()&&await all.isEnabled(),'Los botones vuelven a habilitarse tras cancelar');
-  await status.click();
+  await personalize.click();await status.click();await personalize.click();
 
   await personalize.click();
   const appearance=panel.getByLabel('Apariencia');

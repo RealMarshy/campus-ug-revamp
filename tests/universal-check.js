@@ -6,6 +6,7 @@ async (page, baseline=false)=>{
   const calls=new Map(), held=[];
   let faults={}, requests=0, calendar=0, passed=0, activityCount=46, pendingTimeout;
   const check=(ok,label)=>{if(!ok)throw Error(label);passed++;};
+  const warning=page.locator('[data-minimal-warning]');
   const diag=async()=>JSON.parse(await page.locator('#ugr-diagnostics').textContent());
   const final=()=>page.waitForFunction(()=>{
     const node=document.querySelector('#ugr-diagnostics');
@@ -48,9 +49,10 @@ async (page, baseline=false)=>{
         return await route.abort();
       }
       if(failure==='network')return await route.abort('internetdisconnected');
+      if(failure==='hold')await new Promise(resolve=>{held.push(resolve);pendingTimeout?.();});
       if(failure==='conflict')return await route.fulfill({body:valid+'<script>M.cfg={"userId":99};</script>'});
       if(failure==='unknown')return await route.fulfill({body:identity+'<main>Estado nuevo</main>'});
-      if(failure)return await route.fulfill({status:failure.status??failure,headers:failure.headers,body:'Fallo ficticio'});
+      if(failure&&failure!=='hold')return await route.fulfill({status:failure.status??failure,headers:failure.headers,body:'Fallo ficticio'});
       await route.fulfill({body:valid});
     }catch{}
   });
@@ -68,24 +70,46 @@ async (page, baseline=false)=>{
   const comparison={cold:sample(cold),healthy:sample(healthy)};
   if(baseline)return {passed,comparison};
 
+  await page.evaluate(()=>localStorage.removeItem('fixture'));
+  faults={1:[503,'hold']};calls.clear();activityCount=1;
+  const retryStarted=new Promise(resolve=>{pendingTimeout=resolve;});
+  await page.reload();
+  await retryStarted;
+  await page.waitForFunction(()=>JSON.parse(document.querySelector('#ugr-diagnostics').textContent).activeFailures.length===1);
+  check(await warning.isHidden()&&(await diag()).activeFailures[0].recoveryFailed===false,'Primer fallo visible solo en diagnóstico durante la recuperación');
+  held.shift()();
+  await final();
+  pendingTimeout=undefined;
+  check(await warning.isHidden()&&(await diag()).activeFailures.length===0&&calls.get(1)===2,'Recuperación exitosa sin advertencia');
+
   const three=await reset({1:['timeout'],2:['timeout'],3:['timeout']});
   check(three.run.timeoutPhase.headers===3&&three.run.recoveredAfterRetry===3&&three.activity===45,'Tres timeouts simultáneos se recuperan de forma selectiva');
   const partial=await reset({1:[502],2:[503,504],3:[504]},5);
   check(partial.run.retriesAttempted===3&&partial.run.recoveredAfterRetry===2&&partial.run.persistentErrors===1,'502, 503 y 504 permiten recuperación parcial');
+  check((await warning.textContent())==='1 actividad con un fallo persistente.'&&partial.d.activeFailures[0].recoveryFailed,'Contador singular aunque cambie el código de error');
   const failed=await reset({1:['network','network'],2:[503,503],3:['unknown']},4);
-  check(failed.run.retriesAttempted===2&&failed.run.persistentErrors===3&&failed.d.activeFailures.length===3,'Solo los fallos transitorios persistentes reciben un reintento');
+  check(failed.run.retriesAttempted===2&&failed.run.persistentErrors===2&&failed.d.activeFailures.length===3&&
+    (await warning.textContent())==='2 actividades con fallos persistentes.','El contador solo incluye recuperaciones fallidas');
   const beforeBackoff=requests;
   await page.locator('[data-refresh]').click();await final();
   check((await diag()).lastRun.skipped===3&&requests-beforeBackoff===4&&calls.get(1)===2,'Actualizar respeta backoff y reutiliza entregas');
+  await page.reload();await final();
+  check((await warning.textContent())==='2 actividades con fallos persistentes.','La advertencia persiste tras recargar con backoff');
+  faults={};
+  await page.evaluate(()=>{window.confirm=()=>true;});
+  await page.getByRole('button',{name:'Reverificar todo',exact:true}).click();await final();
+  check(await warning.isHidden()&&(await diag()).activeFailures.length===0,'Una verificación posterior exitosa retira la advertencia');
   const limited=await reset(Object.fromEntries(Array.from({length:8},(_,i)=>[i+1,[503]])),8);
-  check(limited.run.retriesAttempted===6&&limited.run.recoveryDeferred===2&&limited.run.persistentErrors===2,'Máximo de seis actividades por ejecución');
+  check(limited.run.retriesAttempted===6&&limited.run.recoveryDeferred===2&&limited.run.persistentErrors===0&&await warning.isHidden(),'El límite de seis no convierte los aplazados en persistentes');
   const rate=await reset({1:[{status:429,headers:{'Retry-After':'1'}}],2:[{status:429,headers:{'Retry-After':'600'}}],
     3:[429],4:[{status:429,headers:{'Retry-After':'incorrecto'}}]},4);
-  check(rate.run.retriesAttempted===1&&rate.run.recoveryDurationMs>=900&&rate.run.persistentErrors===3,'429 solo con Retry-After válido y corto');
+  check(rate.run.retriesAttempted===1&&rate.run.recoveryDurationMs>=900&&rate.run.persistentErrors===0&&await warning.isHidden(),'429 solo con Retry-After válido y corto, sin advertencia por espera');
   const conflict=await reset({1:[503],2:['conflict']},2);
   check(conflict.run.retriesAttempted===0&&conflict.d.activeFailures.some(x=>x.code==='IDENTITY_CONFLICT'),'Conflicto de identidad impide despachar la cola');
+  check((await warning.textContent()).includes('identidad')&&!(await warning.textContent()).includes('persistente'),'Identidad recibe un aviso específico sin sumar fallos persistentes');
   await reset({session:true},2);
   check(requests===1&&calls.size===0,'Sesión caducada impide consultas de actividades');
+  check((await warning.textContent()).includes('Sesión caducada'),'Sesión recibe un aviso específico sin reintento');
   await reset({},2);
   activityCount=3;faults[3]=['timeout'];
   await page.locator('[data-refresh]').click();await final();
@@ -96,7 +120,7 @@ async (page, baseline=false)=>{
   await page.getByRole('tab',{name:/^Entregadas/}).click();
   await page.locator('[data-reverify="assign:1"]').click();await final();
   const individual=(await diag()).lastRun;
-  check(individual.mode==='one'&&individual.persistentErrors===1&&individual.retriesAttempted===0&&calls.get(1)===2,
+  check(individual.mode==='one'&&individual.persistentErrors===0&&individual.activityErrors===1&&individual.retriesAttempted===0&&calls.get(1)===2,
     'Reverificación individual conserva una sola solicitud');
 
   await page.clock.install();
@@ -127,7 +151,7 @@ async (page, baseline=false)=>{
   await final();
   const budget=(await diag()).lastRun;
   check(budget.retriesAttempted<=3&&budget.recoveryDeferred>=5&&budget.recoveryDurationMs>=74900&&budget.recoveryDurationMs<75100&&
-    budget.timeoutPhase.headers===budget.retriesAttempted,'El presupuesto de 75 s detiene la cola tras agotar los plazos');
+    budget.timeoutPhase.headers===budget.retriesAttempted&&budget.persistentErrors===budget.retriesAttempted,'El presupuesto de 75 s solo cuenta las recuperaciones ejecutadas y fallidas');
   pendingTimeout=undefined;
   for(const release of held.splice(0))release();
   return {passed,comparison};

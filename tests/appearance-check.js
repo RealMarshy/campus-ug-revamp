@@ -158,6 +158,23 @@ async page=>{
   await page.route('http://127.0.0.1:8765/lib/ajax/service.php?*',route=>route.fulfill({json:[{data:{weeks:[]}}]}));
   await page.reload();await idle();await open();
   check(await picker.inputValue()==='auto'&&await theme()==='light','La segunda cuenta conserva su propio valor');
+  await page.evaluate(()=>{
+    const data=JSON.parse(localStorage.fixture);
+    const account='ugr2:'+location.origin+':99';
+    const t=Date.now();
+    data[account+':failures']={'assign:999':{code:'NETWORK',t,retryAt:t+60000,attempts:2,recoveryFailed:true}};
+    localStorage.fixture=JSON.stringify(data);
+  });
+  await page.reload();await idle();await open();
+  const warning=panel.locator('[data-minimal-warning]');
+  const checkWarning=async label=>check(await warning.isVisible()&&await warning.evaluate(node=>
+    getComputedStyle(node).color===getComputedStyle(node.closest('#ugr-panel').querySelector('.ugr-count-atrasadas')).color),label);
+  await checkWarning('Advertencia en Automático claro');
+  await picker.selectOption('light');await expectTheme('light');await checkWarning('Advertencia en Claro');
+  await picker.selectOption('dark');await expectTheme('dark');await checkWarning('Advertencia en Oscuro');
+  await picker.selectOption('auto');await expectTheme('light');
+  await page.evaluate(()=>Object.assign(document.documentElement.dataset,{darkreaderMode:'dynamic',darkreaderScheme:'dark'}));
+  await expectTheme('dark');await checkWarning('Advertencia en Automático con Dark Reader simulado');
   check(errors.length===0,'Sin errores JavaScript: '+errors.join(', '));
   return {passed,contrast:{light:Math.min(...Object.values(light)),dark:Math.min(...Object.values(dark))}};
 }

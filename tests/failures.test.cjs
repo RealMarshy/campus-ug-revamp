@@ -25,3 +25,14 @@ test('failure cache validates scope, times and data without changing automatic c
  assert.equal(Object.keys(cleaned).length,3);assert.ok(!JSON.stringify(cleaned).includes('secret'));
  assert.equal(C.empty().schema,2);
 });
+test('Solo los fallos de actividad con evidencia explícita conservan la marca de recuperación fallida',()=>{
+ const failed={...C.failureRecord(C.problem('HTTP',{http:504}),null,100),recoveryFailed:true};
+ const legacy={...C.failureRecord(C.problem('TIMEOUT'),null,100),attempts:4};
+ const base=C.readState({'p:failures':{'assign:1':legacy,'calendar:2026-11':failed},
+   'p:history':{schema:1,changes:[{type:'failure',key:'quiz:2',value:failed}]}},'p:','https://example.test',200).failures;
+ assert.equal(base['quiz:2'].recoveryFailed,true);
+ assert.equal(base['quiz:2'].attempts,1);
+ assert.equal(base['assign:1'].recoveryFailed,undefined);
+ assert.equal(base['calendar:2026-11'].recoveryFailed,undefined);
+ assert.equal(C.cleanFailures({'quiz:2':{...failed,recoveryFailed:'true'}},200)['quiz:2'].recoveryFailed,undefined);
+});

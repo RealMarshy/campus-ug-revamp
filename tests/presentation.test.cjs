@@ -4,12 +4,21 @@ const assert=require('node:assert/strict');
 const {presentation,presentationList,titleLimit}=require('../core');
 
 test('Preferencias por defecto con ausencia, esquema futuro o tipos inválidos',()=>{
-  const defaults={schema:1,position:'top',mode:'tabs',categories:['proximas'],
+  const defaults={schema:1,position:'hidden',mode:'tabs',categories:['proximas'],
     title:'Mis actividades · Campus UG Revamp',size:'normal',limit:null,course:'all',autoRefreshMinutes:10,appearance:'auto'};
   assert.deepEqual(presentation(),defaults);
   assert.deepEqual(presentation({schema:2,title:'Futuro'}),defaults);
   assert.deepEqual(presentation({schema:1,position:true,mode:'otro',categories:'todas',
     title:'   ',size:'vertical',limit:'10',course:{}}),defaults);
+});
+
+test('Conserva las tres posiciones guardadas y la ubicación que se debe restaurar',()=>{
+  for(const position of ['top','bottom','hidden']){
+    const saved={schema:1,position};
+    assert.equal(presentation(saved).position,position);
+    assert.deepEqual(saved,{schema:1,position});
+  }
+  assert.equal(presentation({schema:1,position:'hidden',restoreStatusBelow:true}).restoreStatusBelow,true);
 });
 
 test('Acepta una selección vacía y valida valores persistidos sin modificar el objeto original',()=>{

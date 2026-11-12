@@ -264,6 +264,7 @@
   max-width: 100%;
 }
 .ugr-preference-fields label, .ugr-title-setting label { display: grid; gap: .2rem; min-width: 0; }
+.ugr-status-visibility { display: grid; gap: .2rem; min-width: 0; }
 .ugr-title-setting input { width: min(23rem, 100%); box-sizing: border-box; }
 .ugr-preferences input[type="checkbox"] { accent-color: var(--ugr-blue); }
 .ugr-preferences button, .ugr-preferences select, .ugr-preferences input[type="text"],
@@ -283,7 +284,9 @@
 /* Reserve the button's footprint while it is hidden from sight and keyboard navigation. */
 .ugr-panel .ugr-status-actions [data-cancel][hidden] { display: inline-block !important; visibility: hidden; }
 .ugr-active-filters { display: block; margin-top: .15rem; }
-.ugr-warning { align-items: center; padding: .35rem 0; color: var(--ugr-red); }
+.ugr-warning { align-items: center; padding: .35rem 0; }
+.ugr-warning [data-minimal-warning] { color: var(--ugr-red); }
+.ugr-warning [data-minimal-warning]:empty { display: none; }
 .ugr-empty button { display: block; margin: .5rem auto 0; }
 [data-presentation-error]:empty { display: none; }
 [data-presentation-error] { color: var(--ugr-red); }

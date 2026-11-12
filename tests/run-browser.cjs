@@ -7,7 +7,7 @@ const {randomUUID}=require('node:crypto');
 const {setTimeout:wait}=require('node:timers/promises');
 const cli=process.env.UG_PLAYWRIGHT_CLI;
 if(!cli)throw Error('Define UG_PLAYWRIGHT_CLI con la ruta a cli.js de Playwright CLI.');
-const all=['recovery','optimization','quiz-first-attempt','browser','robustness','migration','diagnostic','presentation','discovery','discovery-2.0.6','discovery-alternative','credits','periodic','periodic-baseline','appearance','ambient','ambient-baseline','header','universal','universal-baseline'];
+const all=['recovery','optimization','quiz-first-attempt','browser','robustness','migration','diagnostic','presentation','discovery','discovery-2.0.6','discovery-alternative','credits','periodic','periodic-baseline','appearance','ambient','ambient-baseline','header','universal','universal-baseline','evidence','evidence-baseline'];
 const suites=process.argv.slice(2).length?process.argv.slice(2):all;
 const server=spawn(process.execPath,['tests/fixture-server.cjs'],{stdio:['ignore','pipe','inherit']});
 const session='ug-sandbox-'+process.pid;
@@ -45,14 +45,15 @@ const guard=`async page=>{
     const discovery=suite==='discovery'||suite==='discovery-2.0.6'||alternative;
     const periodic=suite==='periodic'||suite==='periodic-baseline';
     const ambient=suite==='ambient'||suite==='ambient-baseline';
+    const evidence=suite==='evidence'||suite==='evidence-baseline';
     const universal=suite==='universal'||suite==='universal-baseline';
     const reference=discovery&&suite!=='discovery'?readFileSync(join(__dirname,'references','2.0.6','content.js'),'utf8'):null;
-    const code=readFileSync('tests/'+(baseline?'recovery':discovery?'discovery':periodic?'periodic':ambient?'ambient':universal?'universal':suite)+'-check.js','utf8');
+    const code=readFileSync('tests/'+(baseline?'recovery':discovery?'discovery':periodic?'periodic':ambient?'ambient':universal?'universal':evidence?'evidence':suite)+'-check.js','utf8');
     // Legacy suites expect a loaded fixture, whereas the new suites configure routes first.
     let preload="if(!(await page.request.get(origin+'/mode?value=normal')).ok())throw Error('No se pudo restablecer el fixture.');";
-    if(!discovery&&!periodic&&!ambient&&!universal&&!['optimization','quiz-first-attempt','recovery','recovery-baseline','presentation','header'].includes(suite))preload+='await page.goto(origin);';
-    if(baseline||suite==='periodic-baseline'||suite==='ambient-baseline'||suite==='universal-baseline'){
-      const version=baseline?'2.0.4':ambient?'2.0.9':universal?'2.0.9.1':'2.0.7';
+    if(!discovery&&!periodic&&!ambient&&!universal&&!evidence&&!['optimization','quiz-first-attempt','recovery','recovery-baseline','presentation','header'].includes(suite))preload+='await page.goto(origin);';
+    if(baseline||suite==='periodic-baseline'||suite==='ambient-baseline'||suite==='universal-baseline'||suite==='evidence-baseline'){
+      const version=baseline?'2.0.4':ambient?'2.0.9':universal?'2.0.9.1':evidence?'2.1.0':'2.0.7';
       for(const file of ambient?['content.js','styles.css']:['core.js','content.js']){
         const body=JSON.stringify(readFileSync(join(__dirname,'references',version,file),'utf8'));
         preload+=`await page.route(origin+${JSON.stringify('/'+file)},route=>route.fulfill({contentType:${JSON.stringify(file.endsWith('.css')?'text/css':'text/javascript')},body:${body}}));`;

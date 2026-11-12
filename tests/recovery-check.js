@@ -130,13 +130,13 @@ async (page, baseline=false) => {
   await page.waitForFunction(()=>document.querySelector('.ugr-note').textContent.includes('Recuperando'));
   check(!(await page.locator('#ugr-panel [role="status"]').textContent()).includes('Actualización finalizada'),'Recuperación sin final prematuro');
   await page.getByRole('button',{name:'Cancelar verificación'}).click();await waitFinal(page);
-  check((await report()).lastRun.cancelled&&delayIds.filter(id=>calls[id]>1).length<=1,'Cancelar detiene la cola');
+  check((await report()).lastRun.cancelled&&(await report()).lastRun.persistentErrors===0&&delayIds.filter(id=>calls[id]>1).length<=1,'Cancelar detiene la cola sin registrar otro fallo de recuperación');
   const rate=await execute('rateLimit');
-  check(rate.lastRun.retriesAttempted===1&&rate.lastRun.persistentErrors===2&&calls['1']===2&&calls['2']===1&&calls['3']===1,'429 solo se reintenta con espera corta indicada');
+  check(rate.lastRun.retriesAttempted===1&&rate.lastRun.persistentErrors===0&&rate.lastRun.activityErrors===2&&calls['1']===2&&calls['2']===1&&calls['3']===1,'429 solo se reintenta con espera corta indicada');
   check(rateWait>=1000,'Se espera el Retry-After indicado');
   delayIds.push('4','5','6','7');
   const cap=await execute('cap');
-  check(cap.lastRun.retriesAttempted===6&&cap.lastRun.recoveryDeferred===1&&cap.lastRun.persistentErrors===1,'Límite de seis intentos de recuperación por ejecución');
+  check(cap.lastRun.retriesAttempted===6&&cap.lastRun.recoveryDeferred===1&&cap.lastRun.persistentErrors===0&&cap.lastRun.activityErrors===1,'Límite de seis intentos de recuperación por ejecución');
   delayIds.splice(3);
 
   const second=await context.newPage();

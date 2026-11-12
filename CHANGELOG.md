@@ -1,6 +1,19 @@
 # Historial de cambios
 
-Este historial resume las versiones locales de Revamp, derivado de [Panel de Tareas UG](https://github.com/danieIabel/campus-ug). La primera versión propuesta para GitHub Releases es 2.1.0.
+Este historial resume las versiones de Revamp, derivado de [Panel de Tareas UG](https://github.com/danieIabel/campus-ug).
+
+## 2.2.0
+
+- La advertencia de actividades cuenta las recuperaciones automáticas que fallaron y permanece hasta que esas actividades se comprueben con éxito. Los fallos iniciales y aplazados se muestran en Diagnóstico.
+
+- Ocultar y Mostrar estado quedan dentro de Personalizar y comparten la preferencia guardada con Ubicación del estado. Cancelar verificación sigue accesible en el panel.
+- El resumen y el diagnóstico empiezan ocultos en las cuentas sin una ubicación guardada. Se conservan las elecciones previas de Arriba, Abajo u Oculto.
+
+- Un primer intento disponible y verificado aparece en Próximas o Atrasadas según el vencimiento. La ausencia de intentos por sí sola sigue en Sin verificar.
+
+- Sin verificar distingue los cuestionarios sin intentos, no disponibles y sin estado reconocible. Un intento finalizado sigue apareciendo en Entregadas.
+- Los títulos del calendario se presentan como texto plano con una sola pasada de decodificación de entidades.
+- Las tareas entregadas muestran la última calificación numérica explícita que Moodle devolvió dentro del plazo de vigencia. La información sale de la consulta habitual de la tarea.
 
 ## 2.1.0 — Recuperación automática de errores transitorios en todas las sincronizaciones aplicables
 

@@ -2,7 +2,7 @@
   'use strict';
   if (document.getElementById('ugr-panel')) return;
   const C = UGCore, CFG = C.CONFIG, MODS = C.mods, ORIGIN = location.origin;
-  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.1.0';
+  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.2.0';
   const session = C.identity(document);
   const prefix = `ugr2:${ORIGIN}:${session.userId}:`;
   const historyKey=prefix+'history', lockName='campus-ug-revamp:'+session.userId;
@@ -13,7 +13,7 @@
   let failures={}, incidents=[], lastRun={};
   const TABS = C.categories.map((id,index)=>({id,label:['Próximas','Atrasadas','Entregadas','Pendientes','Sin verificar'][index]}));
   const state = {items:[],tab:'proximas',loading:false,progress:'',error:'',store:{auto:{},manual:{}}};
-  let preferences=C.presentation(), savedPreferences=preferences, pendingPreferences={}, temporaryStatus=null;
+  let preferences=C.presentation(), savedPreferences=preferences, pendingPreferences={};
   let presentationReady=false, savingPreferences=false, preferenceTimer;
   let cache=C.empty(), stopped=false, running=null, runningTarget, renderTimer, timer;
   let runningMode, waitingLock, cancelled=false, cancelSerial=0;
@@ -95,7 +95,9 @@
     }
     for(const [id,v] of Object.entries(stored?.records??{})){
       if(!/^(assign|quiz):\d+$/.test(id)||!Number.isFinite(v?.t)||v.t>Date.now()||!Number.isFinite(v.stateAt)||v.stateAt>v.t)continue;
-      stamps[id]={t:v.t,stateAt:v.stateAt,closedAt:Number.isSafeInteger(v.closedAt)&&v.closedAt>0?v.closedAt:null,observedAt:Number.isFinite(v.observedAt)?v.observedAt:0};
+      const grade=id.startsWith('assign:')&&C.gradeText(v.grade);
+      stamps[id]={t:v.t,stateAt:v.stateAt,closedAt:Number.isSafeInteger(v.closedAt)&&v.closedAt>0?v.closedAt:null,
+        observedAt:Number.isFinite(v.observedAt)?v.observedAt:0,...(grade?{grade}:{})};
     }
     state.store={auto:cache.auto,manual:saved.manual};
     collect();
@@ -103,13 +105,25 @@
   function months(){
     const now=new Date();return Array.from({length:6},(_,i)=>{const d=new Date(now.getFullYear(),now.getMonth()+i-3,1);return {year:d.getFullYear(),month:d.getMonth()+1,key:`${d.getFullYear()}-${d.getMonth()+1}`,historical:i<3};});
   }
+  const titleEntity=document.createElement('textarea');
+  let plainTitles=new Map();
   function collect(){
     const map=new Map();
     for(const month of Object.values(cache.months))for(const it of month.items){
       const id=key(it);
       if(!map.has(id)||map.get(id).synced<=it.synced)map.set(id,it);
     }
-    state.items=[...map.values()];
+    const nextTitles=new Map();
+    state.items=[...map.values()].map(it=>{
+      const name=nextTitles.get(it.name)??plainTitles.get(it.name)??it.name.replace(
+        /&(?:#[0-9]{1,10}|#x[0-9a-f]{1,8}|[a-z][a-z0-9]{1,31});/gi,entity=>{
+          titleEntity.innerHTML=entity;
+          return titleEntity.textContent;
+        });
+      nextTitles.set(it.name,name);
+      return name===it.name?it:{...it,name};
+    });
+    plainTitles=nextTitles;
     if(state.items.length && metrics.firstContentMs===null) metrics.firstContentMs=Math.round(performance.now()-started);
   }
   // Both callers hold the account lock and read the history before appending.
@@ -155,7 +169,9 @@
     return {...status,closed:C.closeEvidence(doc,it.mod)};
   }
   function recordFailure(changes,k,e,stage,module='none',round='initial') {
-    const failure=C.failureRecord(e,failures[k]);failures[k]=failure;
+    const previous=failures[k], failure=C.failureRecord(e,previous);
+    if(stage==='activity'&&(round==='recovery'||previous?.recoveryFailed))failure.recoveryFailed=true;
+    failures[k]=failure;
     changes.push({type:'failure',key:k,value:failure});
     incidents.push({stage,module,round,code:failure.code,details:failure.details});
     if(incidents.length>100)incidents.shift();
@@ -208,11 +224,11 @@
     const changes=[];
     const retryQueue=new Map(), timeoutPhase={headers:0,body:0};
     let recoveryBlocked=false;
-    let initialErrors=0, retriesAttempted=0, recoveredAfterRetry=0, initialDurationMs=0, recoveryDurationMs=0;
+    let initialErrors=0, retriesAttempted=0, recoveredAfterRetry=0, persistentErrors=0, initialDurationMs=0, recoveryDurationMs=0;
     let finalMessage='';
     let archived=0, reactivated=0, cacheHits=0, changed=0, detected=0, unknownClose=0, shared=false, saveStamps=periodic;
     const recovered={forum:0,assign:0,quiz:0};
-    const recognizedAbsences={quiz_no_attempts:0};
+    const recognizedAbsences={quiz_no_attempts:0,quiz_unavailable:0};
     lastRun={mode,trigger,manual,checked:0,activityErrors:0,calendarErrors:0,skipped:0,recovered,recognizedAbsences};
     try{
       assertSession();
@@ -303,10 +319,11 @@
           if(round==='recovery'){recoveredAfterRetry++;errors--;}
           if(failures[key(it)])recovered[it.mod]++;
           if(Object.hasOwn(recognizedAbsences,status.absence))recognizedAbsences[status.absence]++;
-          const closedAt=status.closed && closeAt && status.t>closeAt ? closeAt:null;
+          const closedAt=!status.absence && status.closed && closeAt && status.t>closeAt ? closeAt:null;
           if(stamp?.closedAt && stamp.closedAt!==closedAt)reactivated++;
-          if(!previous||previous.done!==status.done||previous.source!==status.source){
-            const value={done:status.done,source:status.source,t:status.t};
+          if(!previous||previous.done!==status.done||previous.source!==status.source||previous.absence!==status.absence||previous.available!==status.available){
+            const value={done:status.done,source:status.source,t:status.t,...(status.absence?{absence:status.absence}:{}),
+              ...(status.available?{available:true}:{})};
             cache.auto[id]=value;
             changes.push({type:'auto',key:id,value});
             changed++;
@@ -315,13 +332,15 @@
             changes.push({type:"closure",key:id,value:{closedAt,t:status.t}});
             if(previous && previous.done===status.done && previous.source===status.source)changed++;
           }
-          stamps[id]={t:status.t,stateAt:cache.auto[id].t,closedAt,observedAt:performance.timeOrigin+performance.now()};
+          stamps[id]={t:status.t,stateAt:cache.auto[id].t,closedAt,observedAt:performance.timeOrigin+performance.now(),
+            ...(status.grade?{grade:status.grade}:{})};
           saveStamps=true;
           resolveFailure(changes,id);
         }
         catch(e){
           if(cancelled||stopped)return;
           if(round==='initial'){errors++;initialErrors++;}
+          else persistentErrors++;
           if(e.code==='TIMEOUT'&&Object.hasOwn(timeoutPhase,e.details?.phase))timeoutPhase[e.details.phase]++;
           recordFailure(changes,id,e,'activity',it.mod,round);
           if(e.code==='IDENTITY_CONFLICT'){
@@ -377,7 +396,6 @@
         const recoveryNote=initialErrors?` · ${initialErrors} fallos iniciales · ${retriesAttempted} reintentos · ${recoveredAfterRetry} recuperadas`:'';
         finalMessage=`${heading} ${calendarRequested} meses consultados · ${calendarReused} meses desde caché${sharedNote} · ${newActivities} actividades nuevas · ${checked} comprobaciones${recoveryNote} · ${errors} fallos de actividad · ${calendarErrors} fallos de calendario${waitingNote} · ${skipped} actividades en espera · ${archived} archivadas.`;
       }
-      if(errors||calendarErrors) fail('Hay nuevas verificaciones fallidas. Revisa Diagnóstico para conocer sus causas. Se conservan los estados anteriores.');
     }catch(e){
       if(cancelled)finalMessage='Reverificación cancelada.';
       else if(!stopped){
@@ -398,7 +416,7 @@
       metrics.syncMs=Math.round(performance.now()-start);
       lastRun={mode,trigger,manual,checked,activityErrors:errors,calendarErrors,skipped,calendarWaiting,
         calendarRequested,calendarReused,calendarShared,newActivities,recovered,recognizedAbsences,detected,unknownClose,changed,archived,reactivated,cacheHits,shared,reverified:force||mode==='one'?checked:0,durationMs:metrics.syncMs,
-        initialChecked:checked,initialErrors,retriesAttempted,recoveredAfterRetry,persistentErrors:errors,
+        initialChecked:checked,initialErrors,retriesAttempted,recoveredAfterRetry,persistentErrors,
         initialDurationMs,recoveryDurationMs,retryConcurrency:retriesAttempted?1:0,timeoutPhase,recoveryDeferred:retryQueue.size-retriesAttempted,cancelled};
       if(periodic)lastPeriodicResult={...lastRun,startedAt:lastPeriodicRun,interrupted:!proceed()};
       state.loading=false;render();
@@ -489,7 +507,9 @@
       if(!periodicInterval()&&runningMode==='periodic')periodicInterrupted=true;
       schedulePeriodic();
     }
-    return Object.keys(next).some(field=>field!=='appearance'&&JSON.stringify(next[field])!==JSON.stringify(previous[field]));
+    if(next.position!==previous.position)displayStatus(statusRecords);
+    return Object.keys(next).some(field=>!['appearance','position','restoreStatusBelow'].includes(field)&&
+      JSON.stringify(next[field])!==JSON.stringify(previous[field]));
   }
   /* ---------- clasificación ---------- */
 
@@ -501,7 +521,8 @@
     const status=completion(it);
     if(it.mod==='forum')return status.done?'entregadas':'manuales';
     if(staleDelivered(it))return 'entregadas';
-    if(status.source!=='manual' && (failures[key(it)]||status.source==='unknown'))return 'desconocidas';
+    const auto=state.store.auto[key(it)];
+    if(status.source!=='manual' && (failures[key(it)]||status.source==='unknown'||(auto?.absence&&!auto.available)))return 'desconocidas';
     if(status.done)return 'entregadas';
     return it.due * 1000 < Date.now() ? 'atrasadas' : 'proximas';
   };
@@ -554,7 +575,7 @@
     }
     applyPresentation(next);
     if(delayed)displayTitle();
-    else if(!Object.hasOwn(changes,'appearance')||Object.keys(changes).length>1)render();
+    else if(Object.keys(changes).some(field=>!['appearance','position','restoreStatusBelow'].includes(field)))render();
     clearTimeout(preferenceTimer);
     if(delayed)preferenceTimer=setTimeout(flushPresentation,220);
     else flushPresentation();
@@ -580,6 +601,9 @@
     const classification=bucket(it);
     const done=classification==='entregadas';
     const unknown=classification==='desconocidas';
+    const id=key(it), auto=state.store.auto[id], stamp=stamps[id];
+    const grade=done&&it.mod==='assign'&&auto?.source==='moodle'&&auto.done&&!failures[id]&&
+      stamp?.stateAt===auto.t&&Date.now()-stamp.t<CFG.completed?stamp.grade:null;
     const soon=classification==='proximas' && it.due * 1000 - Date.now() < 24 * 3600 * 1000;
     const cls = unknown ? 'ugr-unknown' : done ? 'ugr-done' : classification==='atrasadas' ? 'ugr-late' : soon ? 'ugr-soon' : '';
     return `
@@ -591,7 +615,7 @@
         </div>
         <div class="ugr-when">
           <div>${esc(fmtDate(it.due))}</div>
-          ${unknown ? `<div class="ugr-rel">Sin verificar · ${esc(rel(it.due))}</div>` : done ? '<div class="ugr-rel">Entregada</div>' : classification==='manuales' ? '<div class="ugr-rel">Pendiente manual</div>' : `<div class="ugr-rel">${esc(rel(it.due))}</div>`}
+          ${unknown ? `<div class="ugr-rel">Sin verificar · ${esc(rel(it.due))}</div>` : done ? `<div class="ugr-rel">Entregada${grade?` · <span class="ugr-grade">Calificación: ${esc(grade)}</span>`:''}</div>` : classification==='manuales' ? '<div class="ugr-rel">Pendiente manual</div>' : `<div class="ugr-rel">${esc(rel(it.due))}</div>`}
         </div>
         <div class="ugr-actions">
         ${it.mod==='forum'?'':`<button type="button" class="ugr-toggle" data-reverify="${esc(key(it))}" title="Reverificar esta actividad" aria-label="Reverificar esta actividad">⟳</button>`}
@@ -616,6 +640,10 @@
       const t=stamps[key(it)]?.t??s.t;
       return `Último estado confirmado: entregada · ${t>0?new Date(t).toLocaleString('es-EC')+' · ':''}Reconfirmación pendiente (${C.ERROR_LABELS[f.code]}).`;
     }
+    if(it.mod==='quiz'&&(f||!s||s.source==='unknown'))return 'Sin verificar · Moodle no proporcionó un estado reconocible';
+    if(s?.absence==='quiz_no_attempts')return s.available?'No iniciado · Disponible para realizar':
+      'No iniciado · No se han registrado intentos del cuestionario';
+    if(s?.absence==='quiz_unavailable')return 'Todavía no disponible · El cuestionario aún no permite iniciar un intento';
     if(f)return `Desconocido por error: ${C.ERROR_LABELS[f.code]}. ${s ? 'Último estado: '+(s.done?'entregada':'no entregada')+'. ' : ''}Reintento automático desde ${new Date(f.retryAt).toLocaleTimeString('es-EC')}. Puedes reverificar esta actividad.`;
     if(!s || s.source==='unknown') return 'Sin verificar · origen del estado anterior desconocido';
     const label=s.done?'Entrega confirmada por Moodle':'No entregada según Moodle';
@@ -640,7 +668,8 @@
         <button type="button" data-reset-title>Restablecer título</button>
       </div>
       <div class="ugr-preference-fields">
-        <label>Ubicación del estado <select data-position><option value="top">Arriba</option><option value="bottom">Abajo</option><option value="hidden">Oculta</option></select></label>
+        <label>Ubicación del estado <select data-position><option value="top">Arriba</option><option value="bottom">Abajo</option><option value="hidden">Oculto</option></select></label>
+        <div class="ugr-status-visibility"><span>Visibilidad</span><button type="button" data-toggle-status aria-controls="ugr-status" aria-expanded="true">Ocultar estado</button></div>
         <label>Tamaño del panel <select data-size><option value="compact">Compacto</option><option value="normal">Normal</option><option value="wide">Amplio</option></select></label>
         <label>Actividades visibles <select data-limit><option value="5">5</option><option value="10">10</option><option value="30">30</option><option value="">Sin límite</option></select></label>
         <label>Vista de categorías <select data-mode><option value="tabs">Pestañas rápidas</option><option value="custom">Filtros personalizados</option></select></label>
@@ -668,7 +697,6 @@
       <div><span data-list-info aria-live="polite" aria-atomic="true"></span><span class="ugr-active-filters" data-active-filters hidden></span></div>
       <div class="ugr-status-actions">
         <button type="button" data-cancel hidden>Cancelar verificación</button>
-        <button type="button" data-toggle-status aria-controls="ugr-status">Ocultar estado</button>
       </div>
     </div>
     <div id="ugr-status">
@@ -914,17 +942,25 @@
     if(document.head)appearanceObserver.observe(document.head,{childList:true,subtree:true,characterData:true});
   }
   let courseSignature='';const nodes=new Map();
+  let statusRecords=[];
   function displayStatus(records) {
-    const show=temporaryStatus??(preferences.position!=='hidden');
+    statusRecords=records;
+    const show=preferences.position!=='hidden';
+    ui('[data-position]').value=preferences.position;
     statusBlock.hidden=!show;
     if(preferences.position==='bottom'){
       if(listBody.nextElementSibling!==statusBlock)listBody.after(statusBlock);
     }else if(warning.previousElementSibling!==statusBlock)warning.before(statusBlock);
     statusButton.textContent=show?'Ocultar estado':'Mostrar estado';
     statusButton.setAttribute('aria-expanded',String(show));
-    const count=records.length;
-    const notice=state.error || (count===1?'1 consulta con fallos pendientes.':count>1?`${count} consultas con fallos pendientes.`:'');
-    warning.hidden=show||!notice;
+    const count=records.filter(record=>record.recoveryFailed).length;
+    const persistentNotice=count===1?'1 actividad con un fallo persistente.':count>1?`${count} actividades con fallos persistentes.`:'';
+    const identityNotice=records.some(record=>['IDENTITY_MISSING','IDENTITY_CONFLICT'].includes(record.code))
+      ? 'No se pudo confirmar la identidad en una consulta. Recarga Moodle si el problema continúa.':'';
+    const notice=[state.error||identityNotice,persistentNotice].filter(Boolean).join(' ');
+    const statusError=ui('.ugr-error');
+    if(statusError.textContent!==notice)statusError.textContent=notice;
+    warning.hidden=show||(!notice&&!records.length);
     const message=warning.hidden?'':notice;
     if(ui('[data-minimal-warning]').textContent!==message)ui('[data-minimal-warning]').textContent=message;
   }
@@ -970,10 +1006,9 @@
     if(cancelButton.hidden!==hideCancel){
       const restoreFocus=hideCancel&&document.activeElement===cancelButton;
       cancelButton.hidden=hideCancel;
-      if(restoreFocus)statusButton.focus({preventScroll:true});
+      if(restoreFocus)ui('[data-personalize]').focus({preventScroll:true});
     }
     panel.querySelector('.ugr-note').textContent=state.progress;
-    panel.querySelector('.ugr-error').textContent=state.error;
     const countsByTab=Object.fromEntries(TABS.map(t=>[t.id,0]));
     for(const {b} of rows)for(const t of TABS)if(C.matchesCategory(t.id,b))countsByTab[t.id]++;
     for(const t of TABS){const b=ui(`[data-tab="${t.id}"]`);b.classList.toggle('active',t.id===state.tab);b.setAttribute('aria-selected',String(t.id===state.tab));b.querySelector('span').textContent=countsByTab[t.id];}
@@ -1001,7 +1036,8 @@
     for(const [k,f] of Object.entries(failures)){
       const record={stage:k.startsWith('calendar:')?'calendar':k==='session'?'session':'activity',module:k.split(':')[0],code:f.code,attempts:f.attempts,details:f.details};
       if(record.module==='forum')historicalForumFailures.push(record);
-      else records.push({...record,...(state.store.manual[k]!==undefined?{manualOverride:true}:{}),retryInMinutes:Math.max(0,Math.ceil((f.retryAt-Date.now())/60000))});
+      else records.push({...record,...(record.stage==='activity'?{recoveryFailed:f.recoveryFailed===true}:{}),
+        ...(state.store.manual[k]!==undefined?{manualOverride:true}:{}),retryInMinutes:Math.max(0,Math.ceil((f.retryAt-Date.now())/60000))});
     }
     const effective={manualPending:0,unknown:0,persistentActivityFailures:0,completed:{automatic:0,manual:0,historical:0,historicalUnknown:0,staleAutomatic:0}};
     for(const {it,b} of rows){
@@ -1010,13 +1046,13 @@
       if(b==='desconocidas'){
         effective.unknown++;
       }
-      if(it.mod!=='forum'&&failures[key(it)])effective.persistentActivityFailures++;
+      if(it.mod!=='forum'&&failures[key(it)]?.recoveryFailed)effective.persistentActivityFailures++;
       if(b==='entregadas'){
         const category=staleDelivered(it)?'staleAutomatic':status.source==='historical_unknown'?'historicalUnknown':status.source==='moodle'||status.source==='heuristic'?'automatic':status.source;
         effective.completed[category]++;
       }
     }
-    panel.querySelector('[data-state-summary]').textContent=`Filtro actual · ${effective.unknown} sin verificar · ${effective.completed.staleAutomatic} entregas por reconfirmar · ${effective.persistentActivityFailures} con fallos pendientes · ${effective.manualPending} foros por confirmar.`;
+    panel.querySelector('[data-state-summary]').textContent=`Filtro actual · ${effective.unknown} sin verificar · ${effective.completed.staleAutomatic} entregas por reconfirmar · ${effective.persistentActivityFailures} con fallos persistentes · ${effective.manualPending} foros por confirmar.`;
     const counts={};for(const f of records)counts[f.code]=(counts[f.code]||0)+1;
     const activeSummary=records.length ? Object.entries(counts).map(([code,n])=>`${C.ERROR_LABELS[code]}: ${n}`).join(' · ') : 'Sin fallos activos.';
     displayStatus(records);
@@ -1049,13 +1085,12 @@
       return;
     }
     if(e.target.closest('[data-toggle-status]')){
-      temporaryStatus=statusBlock.hidden;
-      render();
+      if(statusBlock.hidden)updatePresentation({position:preferences.restoreStatusBelow?'bottom':'top',restoreStatusBelow:false});
+      else updatePresentation({position:'hidden',restoreStatusBelow:preferences.position==='bottom'});
       return;
     }
     if(e.target.closest('[data-show-diagnostic]')){
-      temporaryStatus=true;
-      render();
+      updatePresentation({position:preferences.restoreStatusBelow?'bottom':'top',restoreStatusBelow:false});
       ui('.ugr-diagnostic').open=true;
       ui('.ugr-diagnostic summary').focus();
       return;
@@ -1069,9 +1104,8 @@
       return;
     }
     if(e.target.closest('[data-reset-presentation]')){
-      temporaryStatus=null;
       state.tab='proximas';
-      updatePresentation(C.presentation());
+      updatePresentation({...C.presentation(),restoreStatusBelow:false});
       return;
     }
     if(e.target.closest('[data-cancel]')){
@@ -1118,7 +1152,10 @@
     }
     const field=['course','mode','position','size','limit'].find(name=>input.hasAttribute(`data-${name}`));
     if(!field)return;
-    if(field==='position')temporaryStatus=null;
+    if(field==='position'){
+      updatePresentation({position:input.value,restoreStatusBelow:input.value==='hidden'&&preferences.position==='bottom'});
+      return;
+    }
     updatePresentation({[field]:field==='limit'?Number(input.value):input.value});
   });
   titleInput.addEventListener('input',()=>updatePresentation({title:titleInput.value},true));

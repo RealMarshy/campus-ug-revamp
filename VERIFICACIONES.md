@@ -1,4 +1,45 @@
-# Verificaciones de Campus UG Revamp 2.1.0
+# Verificaciones de Campus UG Revamp 2.2.0
+
+## Advertencia de recuperación
+
+En Moodle UG, el usuario confirmó que los errores transitorios se recuperaron sin mostrar avisos rojos ni dejar fallos activos. La validación real del cuestionario bloqueado reportado en otra cuenta sigue pendiente.
+
+La validación final previa a publicar aprobó 31 pruebas Node y 552 comprobaciones en las 23 suites de Chrome, sin fallos ni suites omitidas. El ZIP definitivo también cargó en un perfil aislado de Chrome como extensión Manifest V3.
+
+El registro existente de fallos guarda `recoveryFailed` únicamente cuando falla la segunda consulta automática. La marca se conserva durante el backoff y durante verificaciones posteriores fallidas, hasta que una consulta exitosa elimine el fallo activo. Las entradas anteriores sin esa marca quedan accesibles en Diagnóstico. El contador histórico de intentos por código no permite deducir si se ejecutó un reintento automático.
+
+Diagnóstico distingue los fallos activos de la ejecución, los reintentos aplazados y las recuperaciones que fallaron. Con el resumen oculto, los fallos sin marca ofrecen un acceso neutral a Diagnóstico. La sesión y la identidad mantienen avisos específicos. La política de red y el almacenamiento académico conservan su comportamiento.
+
+Pasaron 31 pruebas Node y 548 comprobaciones en las 23 suites de Chrome. Una repetición de Apariencia pasó 30 comprobaciones, incluidas cuatro nuevas para el aviso en Claro, Oscuro, Automático y Dark Reader simulado. El ZIP extraído cargó como Manifest V3 en un perfil temporal y confirmó el fallo doble, su persistencia tras recargar durante el backoff y la retirada del aviso después de verificar con éxito. Las pruebas usaron Moodle simulado.
+
+## Visibilidad del estado
+
+La posición predeterminada es Oculto cuando falta una selección válida. Se respetan los tres valores guardados y se conserva la última posición visible al volver a mostrar el estado. La prueba de presentación comprueba el inicio oculto, la persistencia por cuenta, la lista de actividades y cero solicitudes al cambiar la preferencia. La prueba de cabecera comprueba la cancelación con el resumen oculto.
+
+Este ajuste aprobó 30 pruebas Node y 541 comprobaciones en 23 suites de Chrome con Moodle simulado, sin fallos ni suites omitidas. El ZIP extraído cargó como extensión Manifest V3 en un perfil temporal de Chrome. Se verificó el inicio oculto, la activación por teclado y la persistencia de Abajo y Oculto después de recargar.
+
+Ocultar y Mostrar estado aparecen exclusivamente en Personalizar. El botón y Ubicación del estado guardan la misma posición por cuenta. Si se oculta desde Abajo, Mostrar restaura esa posición incluso después de recargar. Las instalaciones con la preferencia anterior Oculto vuelven a Arriba si no hay una ubicación previa guardada. El acceso directo al diagnóstico también restaura la visibilidad y actualiza el selector. La cancelación sigue accesible durante la reverificación y devuelve el foco a Personalizar cuando desaparece.
+
+## Evidencia de cuestionarios, títulos y calificaciones
+
+La disponibilidad se guarda como un indicador separado. Próximas y Atrasadas requieren un primer intento confirmado por un formulario POST del mismo cuestionario, habilitado y visible, sin indicios de intentos previos ni restricciones visibles. Un aviso inequívoco de restricción conserva el cuestionario en Sin verificar. La caché anterior con solo ausencia de intentos sigue siendo conservadora hasta la siguiente comprobación habitual o individual. La detección solo lee el HTML y conserva los TTL.
+
+El reconocimiento anterior trataba el aviso de acceso como una señal de diagnóstico y podía terminar en SELECTOR_MISSING cuando Moodle omitía el control de inicio. Ahora el aviso inequívoco dentro de la vista principal del cuestionario se reconoce en la misma respuesta. No iniciado y Todavía no disponible quedan en Sin verificar, con una descripción propia y sin fallo activo. Los enlaces a intentos anteriores o las tablas sin estado reconocible impiden afirmar que no hubo intentos. Un estado finalizado explícito prevalece. Los cuestionarios restringidos mantienen el plazo de reverificación y quedan fuera del archivado de cierres confirmados. [Vista de cuestionarios](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/quiz/classes/output/renderer.php) · [Regla de acceso por fecha](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/quiz/accessrule/openclosedate/rule.php)
+
+El calendario podía devolver el título ya codificado y la plantilla lo escapaba otra vez, haciendo visible la entidad. Revamp proyecta el título como texto plano al reunir las actividades. Solo decodifica tokens de entidad delimitados, una vez, en un elemento separado. La plantilla escapa ese texto antes de insertarlo y la URL se construye con el identificador validado. Se reutiliza la conversión mientras el título siga presente. El historial conserva su representación anterior y se puede leer sin migración.
+
+La calificación se toma de una única fila Grade o Calificación de la tabla de retroalimentación en la vista principal de una tarea con entrega confirmada e identidad comprobada. Solo se muestran formatos numéricos inequívocos, con su escala si Moodle la incluye. La nota vigente se guarda en el registro de verificación de la cuenta y la actividad, sin añadirla al historial ni al diagnóstico. Se oculta al vencer el TTL de entregadas, al fallar la consulta o al desaparecer de una respuesta válida. Las marcas manuales por sí solas no proporcionan una nota. Las escalas textuales, rúbricas, avisos de acceso desconocidos y variantes sin evidencia suficiente conservan su tratamiento conservador. [Tabla de retroalimentación de Moodle](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/assign/classes/output/renderer.php)
+
+### Comparación local
+
+| Versión | HTTP inicial | Verificaciones | Primera carga | Primer contenido | Sincronización | Script del navegador | HTTP al recargar con caché |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 2.1.0 | 24 | 17 | 167 ms | 67 ms | 57 ms | 6,56 ms | 1 |
+| 2.2.0 | 24 | 17 | 155 ms | 61 ms | 51 ms | 5,61 ms | 1 |
+
+Ambas versiones realizaron cero verificaciones al recargar con caché. La medición de script incluye el trabajo JavaScript de la página de prueba. Son muestras individuales con datos ficticios y no estiman los tiempos de Moodle UG.
+
+La batería completa aprobó 29 pruebas Node y 528 comprobaciones de Chrome, sin fallos ni suites omitidas. Después de ampliar la exclusión de notas invisibles, se repitieron las 27 comprobaciones de evidencia y comparación. El ZIP final se extrajo y cargó en Chrome aislado. La prueba confirmó el título decodificado, la nota de la tarea, el cuestionario restringido y su paso a Entregadas tras una reverificación individual. También comprobó el PNG público. El HTML exacto del caso informado en Moodle UG sigue pendiente de validación.
 
 ## 2.1.0 — Recuperación automática de errores transitorios en todas las sincronizaciones aplicables
 

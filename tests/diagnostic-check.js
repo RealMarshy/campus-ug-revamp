@@ -20,10 +20,10 @@ async page=>{
   return results;
  });parser.forEach((ok,i)=>check(ok,'HTML fixture '+i));
  const focused=await page.evaluate(()=>{
-  const quizStart=label=>`<div class="quizstartbuttondiv"><form method="post" action="/mod/quiz/startattempt.php"><button type="submit">${label}</button></form></div>`;
+  const quizStart=label=>`<div class="quizstartbuttondiv"><form method="post" action="/mod/quiz/startattempt.php?cmid=2"><button type="submit">${label}</button></form></div>`;
   const verify=(module,view,html,busy=false)=>{
    const doc=new DOMParser().parseFromString(`<body id="page-mod-${module}-${view}"><script>window.M={cfg:{"userId":42}};</script><main aria-busy="${busy}">${html}</main><footer id="page-footer"></footer></body>`,'text/html');
-   try{return UGCore.recognize(doc,module,'42',location.origin);}catch(error){return error;}
+   try{return UGCore.recognize(doc,module,'42',location.origin,'2');}catch(error){return error;}
   };
   const emptyQuiz=verify('quiz','view',quizStart('Intentar resolver el cuestionario'));
   const unknownQuiz=verify('quiz','view','<table class="quizreviewsummary"><tr><th>Unknown</th><td>Unknown</td></tr></table>');
@@ -55,7 +55,7 @@ async page=>{
  const empty=await diag();
  check(empty.lastRun.activityErrors===0 && empty.activeFailures.length===0,'Explicit absences are not errors');
  check(empty.lastRun.recognizedAbsences.quiz_no_attempts===1 && empty.effective.manualPending===2,'Quiz absence and manual forums counted separately');
- check(await page.getByRole('tab',{name:'Pendientes 5',exact:true}).count()===1,'No attempts and no discussions remain pending');
+ check(await page.getByRole('tab',{name:'Pendientes 5',exact:true}).count()===1,'Quiz disponible y foros sin confirmar quedan pendientes');
  // Previously confirmed status must survive a failed revalidation.
  await fresh('normal');
  await page.getByRole('button',{name:'Marcar como entregada',exact:true}).click();
@@ -65,7 +65,7 @@ async page=>{
  check(await page.evaluate(()=>Object.values(JSON.parse(localStorage.fixture)).some(v=>v.changes?.some(c=>c.type==='manual'&&c.value.done===true))), 'Manual retained');
  const first=await diag();check(first.activeFailures[0].attempts===2,'Fallo inicial más recuperación persistente');
  await page.reload();await wait();const warm=await diag();check(warm.lastRun.activityErrors===0&&warm.lastRun.skipped===1,'Cooldown after reload');
- check((await page.locator('.ugr-error').textContent())==='','No repeated new alert');
+ check((await page.locator('[data-minimal-warning]').textContent())==='1 actividad con un fallo persistente.','El fallo de recuperación sigue visible después de recargar');
  check(warm.activeFailures.length===1,'Previous incidence remains accessible');
  await page.evaluate(()=>{window.confirm=()=>true;});await page.getByRole('button',{name:'Reverificar todo',exact:true}).click();await wait();check((await diag()).activeFailures[0].attempts===4,'Ronda explícita más un reintento para el HTTP 503 persistente');
  await page.evaluate(()=>fetch('/mode?value=normal'));await page.evaluate(()=>{window.confirm=()=>true;});await page.getByRole('button',{name:'Reverificar todo',exact:true}).click();await wait();check((await diag()).activeFailures.length===0,'Recovery removes failure');
@@ -75,7 +75,7 @@ async page=>{
  await page.evaluate(()=>{UGCore.recognize=()=>{throw new TypeError('PRIVATE sesskey=secret')};});
  await page.evaluate(()=>{window.confirm=()=>true;});await page.getByRole('button',{name:'Reverificar todo',exact:true}).click();await wait();const internal=await diag();check(internal.activeFailures.some(f=>f.code==='INTERNAL'),'Internal error category');check(!JSON.stringify(internal).includes('PRIVATE')&&!JSON.stringify(internal).includes('secret'),'Sanitized diagnosis');
  await page.evaluate(async()=>{await fetch('/mode?value=login');localStorage.clear();});await page.reload();await page.waitForFunction(()=>document.querySelector('#ugr-diagnostics')?.textContent.includes('SESSION_EXPIRED'));check(await page.locator('.ugr-item').count()===0,'Session expiry hides data');
- await fresh('unknownhtml');await page.getByRole('tab',{name:'Sin verificar 1',exact:true}).click();await page.locator('.ugr-diagnostic summary').click();await page.setViewportSize({width:1280,height:900});await page.screenshot({path:'output/playwright/diagnostic-desktop-2.0.3.png',fullPage:true});await page.setViewportSize({width:390,height:844});await page.screenshot({path:'output/playwright/diagnostic-mobile-2.0.3.png',fullPage:true});check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile width');
+ await fresh('unknownhtml');await page.getByRole('tab',{name:'Sin verificar 1',exact:true}).click();await page.locator('[data-show-diagnostic]').click();await page.setViewportSize({width:1280,height:900});await page.screenshot({path:'output/playwright/diagnostic-desktop-2.0.3.png',fullPage:true});await page.setViewportSize({width:390,height:844});await page.screenshot({path:'output/playwright/diagnostic-mobile-2.0.3.png',fullPage:true});check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Mobile width');
  return {passed, note:'login handled separately because refresh is intentionally disabled'};
 }
 

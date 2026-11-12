@@ -60,27 +60,35 @@ async page=>{
       }},
       [prefix+'manual:forum:7']:{done:false,t:now-1000},
       [prefix+'failures']:{'quiz:6':{code:'SELECTOR_MISSING',t:now-1000,retryAt:now+3600000,attempts:1}},
-      ['ugr2:'+location.origin+':99:presentation']:{schema:1,title:'Otra cuenta'},
+      ['ugr2:'+location.origin+':99:presentation']:{schema:1,title:'Otra cuenta',position:'top'},
     });
   });
   await page.setViewportSize({width:1280,height:1000});
   await page.goto(origin);await settle();
   check(await title.textContent()===defaultTitle && await panel.getAttribute('data-size')==='normal','Título y tamaño predeterminados');
   check(await prefs.isHidden() && await panel.getByRole('tab',{name:/Próximas/}).getAttribute('aria-selected')==='true','Pestañas predeterminadas');
-  check(await status.isVisible() && await status.evaluate(el=>el.nextElementSibling.matches('.ugr-warning')),'Estado arriba');
+  check(await panel.locator('[data-toggle-status]').count()===1&&await prefs.locator('[data-toggle-status]').count()===1&&
+    await panel.getByRole('button',{name:'Ocultar estado',exact:true}).count()===0,'Visibilidad solo dentro de Personalizar');
+  check(await status.isHidden() && await setting('position').inputValue()==='hidden','Estado oculto sin preferencia guardada');
   check(await rows.count()===241,'Sin límite predeterminado');
   const original=await store(), before=await metric(), initialRequests=academicRequests;
   await open();
   check(await setting('personalize').getAttribute('aria-expanded')==='true','Control de personalización accesible');
+  await setting('toggle-status').press('Enter');
+  check(await status.isVisible()&&await setting('position').inputValue()==='top','Mostrar por primera vez sitúa el estado arriba');
   await setting('position').selectOption('bottom');
   check(await status.evaluate(el=>el.previousElementSibling.matches('[data-list-body]')),'Estado abajo');
   await setting('position').selectOption('hidden');
   check(await status.isHidden() && await setting('toggle-status').textContent()==='Mostrar estado','Estado oculto');
-  check(await setting('minimal-warning').isVisible() && (await setting('minimal-warning').textContent()).includes('fallos pendientes'),'Fallo persistente con estado oculto');
+  check(await setting('minimal-warning').isHidden() && await setting('show-diagnostic').isVisible(),'Fallo anterior sin evidencia de reintento mantiene un acceso neutral al diagnóstico');
   await setting('show-diagnostic').click();
-  check(await status.isVisible() && await panel.locator('.ugr-diagnostic').getAttribute('open')!==null,'Acceso directo al diagnóstico');
-  await setting('toggle-status').click();
-  check(await status.isHidden() && await setting('position').inputValue()==='hidden','Visibilidad temporal independiente');
+  check(await status.isVisible() && await setting('position').inputValue()==='bottom' &&
+    await panel.locator('.ugr-diagnostic').getAttribute('open')!==null,'Acceso directo al diagnóstico restaura Abajo');
+  await setting('toggle-status').press('Enter');
+  check(await status.isHidden() && await setting('position').inputValue()==='hidden' &&
+    await setting('toggle-status').getAttribute('aria-expanded')==='false','El botón y el selector comparten la preferencia');
+  await setting('toggle-status').press('Enter');
+  check(await status.isVisible()&&await setting('position').inputValue()==='bottom','Mostrar restaura Abajo');
   await setting('mode').selectOption('custom');
   check(await panel.locator('.ugr-tabs').isHidden() && await rows.count()===241,'Solo Próximas');
   await select('atrasadas');
@@ -163,7 +171,10 @@ async page=>{
   check(await title.textContent()==='Panel de pruebas' && await setting('course').inputValue()==='2' &&
     await setting('limit').inputValue()==='10' && await setting('mode').inputValue()==='custom' &&
     await setting('size').inputValue()==='wide' && await status.isHidden() && await rows.count()===10,
-  'Preferencias restauradas y visibilidad temporal descartada');
+  'Preferencias y estado oculto restaurados tras recargar');
+  await setting('toggle-status').press('Enter');
+  check(await status.isVisible()&&await setting('position').inputValue()==='bottom','Mostrar recuerda Abajo después de recargar');
+  await setting('toggle-status').press('Enter');
   await page.screenshot({path:'output/playwright/presentation-2.0.6-desktop.png'});
   await page.setViewportSize({width:360,height:780});
   check(await panel.evaluate(el=>el.scrollWidth===el.clientWidth && document.documentElement.scrollWidth===innerWidth) &&
@@ -192,6 +203,7 @@ async page=>{
   await page.route(origin+'/lib/ajax/service.php?*',route=>route.fulfill({json:[{data:{weeks:[]}}]}));
   await page.reload();await settle();await open();
   check(await title.textContent()==='Otra cuenta' && await setting('course').inputValue()==='all','Preferencias aisladas por cuenta');
+  check(await status.isVisible() && await setting('position').inputValue()==='top','La otra cuenta conserva Arriba');
   await page.evaluate(()=>{
     const data=JSON.parse(localStorage.fixture);
     data['ugr2:'+location.origin+':99:presentation']={schema:1,title:{},mode:'bad',size:'huge',limit:1,course:'bad',position:'side',categories:9};
@@ -199,7 +211,7 @@ async page=>{
   });
   await page.reload();await settle();await open();
   check(await title.textContent()===defaultTitle && await setting('limit').inputValue()==='' &&
-    await setting('mode').inputValue()==='tabs' && await status.isVisible(),'Preferencias inválidas usan valores seguros');
+    await setting('mode').inputValue()==='tabs' && await status.isHidden(),'Preferencias inválidas usan valores seguros');
   await setting('title').fill('Nuevo título');
   await setting('size').selectOption('compact');
   const priorRestore=await store();

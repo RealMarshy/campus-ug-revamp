@@ -45,7 +45,7 @@ const server=http.createServer(async(req,res)=>{
  }
  if(mode==='empty-activities' && (id==='2'||id==='3')){
   const mod=id==='2'?'quiz':'forum';
-  const content=id==='2'?'<div class="quizstartbuttondiv"><form method="post" action="/mod/quiz/startattempt.php"><button type="submit">Attempt quiz</button></form></div>':'<div data-gradable-itemtype="forum"><div class="forumnodiscuss alert alert-info">There are no discussion topics yet in this forum.</div></div>';
+  const content=id==='2'?'<div class="quizstartbuttondiv"><form method="post" action="/mod/quiz/startattempt.php?cmid=2"><button type="submit">Attempt quiz</button></form></div>':'<div data-gradable-itemtype="forum"><div class="forumnodiscuss alert alert-info">There are no discussion topics yet in this forum.</div></div>';
   res.end(`<body id="page-mod-${mod}-view">${identity}<main id="region-main">${content}</main><footer id="page-footer"></footer></body>`);return;
  }
  if(mode==='login' && id==='1'){res.end('<body id="page-login-index"><form id="login"><input type="password"></form></body>');return;}

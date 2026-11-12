@@ -36,7 +36,10 @@
       if (!activityKey(key) || typeof s?.done !== 'boolean') continue;
       const source = ['moodle','heuristic'].includes(s.source) ? s.source : 'unknown';
       const t = Number.isFinite(s.t) && s.t<=now ? s.t : 0;
-      out.auto[key] = {done:s.done,t,source,...(s.recheck ? {recheck:true} : {})};
+      const absence=!s.done&&source==='moodle'&&key.startsWith('quiz:')&&
+        ['quiz_no_attempts','quiz_unavailable'].includes(s.absence)?s.absence:null;
+      out.auto[key] = {done:s.done,t,source,...(s.recheck ? {recheck:true} : {}),...(absence?{absence}:{}),
+        ...(absence==='quiz_no_attempts'&&s.available===true?{available:true}:{})};
     }
     out.updated = Number(raw.updated) || 0;
     return out;
@@ -138,7 +141,8 @@
     for(const [k,v]of Object.entries(raw||{})) {
       if(!/^(assign|quiz|forum):\d+$/.test(k) && !/^calendar:\d{4}-\d{1,2}$/.test(k) && k!=='session')continue;
       if(!Object.hasOwn(ERROR_LABELS,v?.code)||!Number.isFinite(v.t)||v.t>now||!Number.isFinite(v.retryAt))continue;
-      out[k]={code:v.code,t:v.t,retryAt:Math.min(Math.max(v.retryAt,v.t),v.t+6*3600e3),attempts:Math.min(Math.max(Number(v.attempts)||1,1),10),details:safeDetails(v.details)};
+      out[k]={code:v.code,t:v.t,retryAt:Math.min(Math.max(v.retryAt,v.t),v.t+6*3600e3),attempts:Math.min(Math.max(Number(v.attempts)||1,1),10),
+        details:safeDetails(v.details),...(/^(assign|quiz):/.test(k)&&v.recoveryFailed===true?{recoveryFailed:true}:{})};
     }
     return out;
   }
@@ -209,11 +213,12 @@
     if(!who.userId)throw problem('IDENTITY_MISSING',{identity:'missing'});
     if(who.userId!==expected)throw problem('ACCOUNT_CHANGED',{identity:'different'});
   }
-  function localizedFirstAttemptReason(start, action, main, origin, cmid, normalize) {
+  function localizedFirstAttemptReason(start, action, main, origin, cmid, normalize, hasAttemptLink, localized) {
     const form=start.form;
     if(!form || form.method!=='post' || !action || action.origin!==origin || action.pathname!=='/mod/quiz/startattempt.php' ||
        main.querySelectorAll('.quizstartbuttondiv [type="submit"]').length!==1 || start.matches(':disabled') ||
-       start.closest('[hidden], [inert], [aria-disabled="true"], [aria-hidden="true"]') ||
+       hiddenEvidence(start) || hiddenEvidence(form) || start.closest('[aria-disabled="true"]') ||
+       form.closest('[aria-disabled="true"]') || !main.contains(form) || action.username || action.password || action.hash ||
        start.hasAttribute('formaction') || start.hasAttribute('formmethod'))return 'form_not_confirmed';
 
     const hiddenIds=[...form.elements].filter(field=>field.matches('input[type="hidden"][name="cmid"]:not(:disabled)'));
@@ -222,18 +227,36 @@
 
     const attemptParameters=['attempt','attemptid','page','forcenew'];
     const hasAttemptParameter=attemptParameters.some(name=>action.searchParams.has(name) || form.elements.namedItem(name));
-    const hasAttemptLink=[...main.querySelectorAll('a[href]')].some(link=>{
-      try{
-        const url=new URL(link.getAttribute('href'),`${origin}/mod/quiz/view.php`);
-        return url.origin===origin && /^\/mod\/quiz\/(attempt|review|summary)\.php$/.test(url.pathname);
-      }catch{return false;}
-    });
     if(hasAttemptParameter || hasAttemptLink)return 'existing_attempt_evidence';
 
     const oneAttempt=[...main.querySelectorAll('.quizinfo, .quizinfo p')].some(node=>
       /^Intentos permitidos\s*:\s*1$/i.test(normalize(node.textContent)));
-    if(!oneAttempt)return 'single_attempt_not_confirmed';
+    if(localized&&!oneAttempt)return 'single_attempt_not_confirmed';
     return null;
+  }
+
+  function gradeText(value) {
+    return typeof value==='string' && /^-?\d{1,8}(?:[.,]\d{1,8})?(?:\s*\/\s*\d{1,8}(?:[.,]\d{1,8})?)?$/.test(value)
+      ? value:null;
+  }
+
+  function hiddenEvidence(node) {
+    if(node.closest('[hidden], [inert], [aria-hidden="true"], .d-none, .hidden, .visually-hidden, .sr-only, script, style, template, noscript'))return true;
+    for(let el=node;el;el=el.parentElement){
+      if(el.style?.display==='none'||['hidden','collapse'].includes(el.style?.visibility))return true;
+    }
+    return false;
+  }
+
+  function assignmentGrade(main,normalize) {
+    const rows=[...main.querySelectorAll('.feedbacktable tr')].filter(row=>{
+      const [label]=row.children;
+      return row.children.length===2&&/^(Grade|Calificación)$/i.test(normalize(label.textContent))&&!hiddenEvidence(row);
+    });
+    if(rows.length!==1)return null;
+    const cell=rows[0].children[1];
+    if(hiddenEvidence(cell)||[...cell.querySelectorAll('*')].some(hiddenEvidence))return null;
+    return gradeText(normalize(cell.textContent));
   }
 
   function recognize(doc, mod, userId, origin, cmid) {
@@ -247,7 +270,7 @@
     else if(bodyId.startsWith('page-'))pageView='other';
     const evidence={identity:'match',pageView,hasMain:!!main,hasFooter:!!doc.querySelector('#page-footer'),mainBusy:!!main?.matches('[aria-busy="true"]')};
     if(pageView==='subview'||pageView==='other')throw problem('VIEW_MISMATCH',evidence);
-    let done,absence;
+    let done,absence,grade,available;
     if(mod==='assign') {
       const nodes=[...doc.querySelectorAll('.submissionstatussubmitted, .submissionstatusnew, .submissionstatusdraft, .submissionstatusreopened, .submissionstatus')];
       for(const row of doc.querySelectorAll('.submissionstatustable tr')) {
@@ -264,6 +287,7 @@
       if(!nodes.length)throw problem('SELECTOR_MISSING',evidence);
       if(!values.length||new Set(values).size!==1)throw problem('STATE_UNKNOWN',evidence);
       done=values[0];
+      if(done&&pageView==='view'&&main&&!evidence.mainBusy)grade=assignmentGrade(main,normalize);
     }else if(mod==='quiz') {
       const table=doc.querySelector('table.quizattemptsummary');
       const rows=table?[...table.querySelectorAll('tbody tr')]:[];evidence.attemptRows=rows.length;
@@ -280,7 +304,13 @@
       else if(states.some(t=>/^(En curso|In progress|Nunca enviado|Never submitted|Vencido|Overdue)$/i.test(t)))done=false;
       else {
         const scope=main||doc.body;
-        const noAttempts=[...scope.querySelectorAll('p, h3, .box')].some(n=>/^(No attempts have been made(?: yet)?\.?|No se han realizado intentos\.?|Todavía no se han hecho intentos\.?)$/i.test(normalize(n.textContent)));
+        const noAttempts=[...scope.querySelectorAll('p, h3, .box')].some(n=>!hiddenEvidence(n)&&/^(No attempts have been made(?: yet)?\.?|No se han realizado intentos\.?|Todavía no se han hecho intentos\.?)$/i.test(normalize(n.textContent)));
+        const hasAttemptLink=[...scope.querySelectorAll('a[href]')].some(link=>{
+          try{
+            const url=new URL(link.getAttribute('href'),`${origin}/mod/quiz/view.php`);
+            return url.origin===origin&&/^\/mod\/quiz\/(attempt|review|summary)\.php$/.test(url.pathname);
+          }catch{return false;}
+        });
         // Moodle uses a distinct label for the first attempt, another attempt and resuming one.
         const start=main?.querySelector('.quizstartbuttondiv [type="submit"]');
         const action=start?.form?.getAttribute('action');
@@ -297,21 +327,30 @@
             }
           }catch{}
         }
-        if(/^Intento de cuestionario$/i.test(label)){
-          const reason=localizedFirstAttemptReason(start,actionUrl,main,origin,cmid,normalize);
-          if(reason)evidence.quizStartReason=reason;
+        const localized=/^Intento de cuestionario$/i.test(label);
+        if(localized||quizStart==='first'){
+          const reason=localizedFirstAttemptReason(start,actionUrl,main,origin,cmid,normalize,hasAttemptLink,localized);
+          if(reason){evidence.quizStartReason=reason;quizStart='other';}
           else quizStart='first';
         }
+        const notices=[...main?.querySelectorAll('.quizattempt p, .quizattempt .alert, .quizinfo p, .quizinfo .alert')??[]]
+          .filter(n=>!hiddenEvidence(n));
+        const restriction=pageView==='view'&&notices.some(n=>
+          /^(?:This quiz is currently not available|(?:Este|El) cuestionario no está disponible en este momento|This quiz is closed|Este cuestionario está cerrado|This quiz is not yet open|(?:Este|El) cuestionario aún no está abierto|Access restricted|Acceso restringido)\.?$/i.test(normalize(n.textContent)));
+        const ambiguousNotice=[...main?.querySelectorAll('.quizattempt p, .quizattempt .alert, .quizinfo .alert, .availabilityinfo')??[]]
+          .some(n=>!hiddenEvidence(n)&&normalize(n.textContent)!=='');
         if(!start && main?.querySelector('.quizattempt .alert'))quizStart='restricted';
         evidence.quizStart=quizStart;
         const explicitAbsence=noAttempts && quizStart==='missing';
-        if(!table && !summaries.length && !evidence.mainBusy && (explicitAbsence || (pageView==='view' && quizStart==='first'))){
+        available=pageView==='view'&&quizStart==='first'&&!restriction&&!ambiguousNotice;
+        if(!table&&!summaries.length&&!hasAttemptLink&&!evidence.mainBusy&&
+            (restriction||explicitAbsence||available)){
           done=false;
-          absence='quiz_no_attempts';
+          absence=restriction?'quiz_unavailable':'quiz_no_attempts';
         }else throw problem(table||summaries.length?'STATE_UNKNOWN':'SELECTOR_MISSING',evidence);
       }
     }else throw problem('HTML_INCOMPATIBLE');
-    return {done,source:'moodle',t:Date.now(),...(absence?{absence}:{})};
+    return {done,source:'moodle',t:Date.now(),...(absence?{absence}:{}),...(available?{available:true}:{}),...(grade?{grade}:{})};
   }
   const categories = Object.freeze(['proximas','atrasadas','entregadas','pendientes','desconocidas']);
   const titleLimit = 80;
@@ -322,7 +361,8 @@
     const title = typeof saved.title === 'string' ? saved.title.slice(0,titleLimit).trim() : '';
     return {
       schema:1,
-      position:['top','bottom','hidden'].includes(saved.position) ? saved.position : 'top',
+      position:['top','bottom','hidden'].includes(saved.position) ? saved.position : 'hidden',
+      ...(saved.position==='hidden'&&saved.restoreStatusBelow===true?{restoreStatusBelow:true}:{}),
       mode:saved.mode === 'custom' ? 'custom' : 'tabs',
       categories:Array.isArray(saved.categories) ? categories.filter(id=>saved.categories.includes(id)) : ['proximas'],
       title:title || defaultTitle,
@@ -347,6 +387,6 @@
     return [...result.values()].sort((a,b)=>ascending ? a.due-b.due : b.due-a.due);
   }
 
-  globalThis.UGCore = { CONFIG, mods, item, empty, clean, needsCheck, verificationDecision, allowsRequest, closeEvidence, identity, ERROR_LABELS, problem, retryAfter, recoveryWait, safeDetails, failureRecord, cleanFailures, checkIdentity, recognize, readState, mergeMonth, completion, categories, titleLimit, presentation, matchesCategory, presentationList };
+  globalThis.UGCore = { CONFIG, mods, item, empty, clean, needsCheck, verificationDecision, allowsRequest, closeEvidence, identity, ERROR_LABELS, problem, retryAfter, recoveryWait, safeDetails, failureRecord, cleanFailures, checkIdentity, recognize, gradeText, readState, mergeMonth, completion, categories, titleLimit, presentation, matchesCategory, presentationList };
   if(typeof module !== 'undefined') module.exports = globalThis.UGCore;
 })();

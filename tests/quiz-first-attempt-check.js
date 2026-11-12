@@ -24,12 +24,16 @@ async page => {
     document.querySelector('.ugr-note').textContent.includes('Actualización finalizada'));
   const report = JSON.parse(await page.locator('#ugr-diagnostics').textContent());
   const results = {
-    pendingInPanel: report.lastRun.recognizedAbsences.quiz_no_attempts===1 && report.effective.unknown===0,
+    pendingInPanel: report.lastRun.recognizedAbsences.quiz_no_attempts===1 && report.effective.unknown===0 && report.activeFailures.length===0,
     oneReadOnly: reads.length===1 && reads[0]==='GET',
     forumsManual: (await page.evaluate(() => fetch('/stats').then(r => r.json()))).forums===0
   };
-  await page.getByRole('tab',{name:/^Pendientes/}).click();
+  await page.getByRole('tab',{name:/^Próximas/}).click();
   results.quizListed = await page.getByRole('link',{name:'Cuestionario de redes',exact:true}).count()===1;
+  results.availableLabel=await page.getByText('No iniciado · Disponible para realizar',{exact:true}).count()===1;
+  await page.evaluate(()=>{const now=Date.now();Date.now=()=>now+7*86400000;});
+  await page.getByRole('tab',{name:/^Atrasadas/}).click();
+  results.availablePast=await page.getByRole('link',{name:'Cuestionario de redes',exact:true}).count()===1;
 
   Object.assign(results, await page.evaluate(({html,origin}) => {
     const before=localStorage.getItem('fixture');
@@ -39,7 +43,7 @@ async page => {
         return UGCore.recognize(doc,'quiz',userId,origin,cmid);
       }catch(error){return {code:error.code,details:error.details};}
     };
-    const pending=result=>result.done===false && result.absence==='quiz_no_attempts';
+    const pending=result=>result.done===false && result.absence==='quiz_no_attempts' && result.available===true;
     const rejected=(markup,reason,cmid='2')=>{
       const result=check(markup,cmid);
       return result.code==='SELECTOR_MISSING' && result.details.quizStartReason===reason;
@@ -60,6 +64,12 @@ async page => {
       externalAction:rejected(html.replace('/mod/quiz/startattempt.php','https://example.test/mod/quiz/startattempt.php'),'form_not_confirmed'),
       override:rejected(html.replace('type="submit"','type="submit" formaction="review.php"'),'form_not_confirmed'),
       disabled:rejected(html.replace('type="submit"','type="submit" disabled'),'form_not_confirmed'),
+      hiddenForm:rejected(html.replace('<form method','<form style="display:none" method'),'form_not_confirmed'),
+      restricted:check(addInside('<div class="quizattempt"><p>Access restricted</p></div>')).absence==='quiz_unavailable',
+      notOpen:check(html.replace(/<div class="quizstartbuttondiv">[\s\S]*?<\/div>/,'<div class="quizattempt"><p>This quiz is not yet open.</p></div>')).absence==='quiz_unavailable',
+      ambiguousRestriction:check(addInside('<div class="availabilityinfo">Condición pendiente</div>')).code==='SELECTOR_MISSING',
+      noButton:check('<body id="page-mod-quiz-view"><script>M.cfg={"userid":42};</script><main><p>No attempts have been made.</p></main>').available===undefined,
+      inProgress:check(addInside(finished.replace('Finalizado','En curso'))).done===false,
       attemptParam:rejected(html.replace('startattempt.php','startattempt.php?attempt=17'),'existing_attempt_evidence'),
       reviewLink:rejected(addInside('<a href="/mod/quiz/review.php?attempt=17">Revisión</a>'),'existing_attempt_evidence'),
       wrongView:check(html.replace('page-mod-quiz-view','page-mod-quiz-review')).code==='VIEW_MISMATCH',
