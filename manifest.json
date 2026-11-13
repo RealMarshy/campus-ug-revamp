@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Campus UG Revamp",
-  "version": "2.2.0",
-  "description": "Agrega al Área personal de Moodle un panel con tareas, cuestionarios y foros: próximas, atrasadas, entregadas y pendientes.",
+  "version": "2.3.0",
+  "description": "Agrega al Área personal de Moodle un panel con tareas, cuestionarios, foros y encuestas.",
   "permissions": [
     "storage"
   ],

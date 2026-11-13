@@ -8,7 +8,7 @@ async (page) => {
  await page.reload();await wait();results.warm=await metric();assert(results.warm.requests===1,'Caché caliente solo comprueba sesión');
  await page.getByLabel('Filtrar por curso').selectOption('2');assert(await page.getByRole('tab',{name:'Pendientes 2',exact:true}).count()===1,'Filtro');
  await page.getByLabel('Filtrar por curso').selectOption('all');
- await page.getByRole('button',{name:'Marcar como entregada',exact:true}).click();
+ await page.locator('[data-toggle="assign:5"]').click();
  await page.waitForFunction(()=>document.querySelector('.ugr-count-entregadas').textContent==='3');
  await page.reload();await wait();assert(await page.getByRole('tab',{name:'Entregadas 3',exact:true}).count()===1,'Persistencia manual');
  await page.getByRole('tab',{name:'Entregadas 3',exact:true}).click();assert((await page.locator('.ugr-source').allTextContents()).includes('Estado manual'),'Origen manual');

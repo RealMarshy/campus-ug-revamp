@@ -7,7 +7,7 @@ const {randomUUID}=require('node:crypto');
 const {setTimeout:wait}=require('node:timers/promises');
 const cli=process.env.UG_PLAYWRIGHT_CLI;
 if(!cli)throw Error('Define UG_PLAYWRIGHT_CLI con la ruta a cli.js de Playwright CLI.');
-const all=['recovery','optimization','quiz-first-attempt','browser','robustness','migration','diagnostic','presentation','discovery','discovery-2.0.6','discovery-alternative','credits','periodic','periodic-baseline','appearance','ambient','ambient-baseline','header','universal','universal-baseline','evidence','evidence-baseline'];
+const all=['recovery','optimization','quiz-first-attempt','browser','robustness','migration','diagnostic','presentation','discovery','discovery-2.0.6','discovery-alternative','credits','periodic','periodic-baseline','appearance','ambient','ambient-baseline','header','universal','universal-baseline','evidence','evidence-baseline','feedback'];
 const suites=process.argv.slice(2).length?process.argv.slice(2):all;
 const server=spawn(process.execPath,['tests/fixture-server.cjs'],{stdio:['ignore','pipe','inherit']});
 const session='ug-sandbox-'+process.pid;
@@ -20,7 +20,8 @@ const guard=`async page=>{
  const origin='http://127.0.0.1:8765', violations=[];
  await page.context().route('**/*',async route=>{
   const req=route.request(), url=req.url(), path=url.slice(origin.length);
-  const allowedGet=req.method()==='GET' && /^\\/(?:my\\/|core\\.js|content\\.js|styles\\.css|stats|mode\\?value=[a-z-]+|mod\\/(assign|quiz)\\/view\\.php\\?id=\\d+)?$/.test(path);
+  const allowedGet=req.method()==='GET' && (/^\\/(?:my\\/|core\\.js|content\\.js|styles\\.css|stats|mode\\?value=[a-z-]+|mod\\/(assign|quiz)\\/view\\.php\\?id=\\d+)?$/.test(path) ||
+    (feedbackSandbox && /^\\/mod\\/feedback\\/view\\.php\\?id=[1-9]\\d*$/.test(path)));
   const allowedPost=req.method()==='POST' && path.startsWith('/lib/ajax/service.php?') &&
     req.postDataJSON()?.length===1 && req.postDataJSON()[0]?.methodname==='core_calendar_get_calendar_monthly_view';
   const allowedImage=req.method()==='GET' && path==='/assets/hagalo-usted-mismo.png';
@@ -51,7 +52,10 @@ const guard=`async page=>{
     const code=readFileSync('tests/'+(baseline?'recovery':discovery?'discovery':periodic?'periodic':ambient?'ambient':universal?'universal':evidence?'evidence':suite)+'-check.js','utf8');
     // Legacy suites expect a loaded fixture, whereas the new suites configure routes first.
     let preload="if(!(await page.request.get(origin+'/mode?value=normal')).ok())throw Error('No se pudo restablecer el fixture.');";
-    if(!discovery&&!periodic&&!ambient&&!universal&&!evidence&&!['optimization','quiz-first-attempt','recovery','recovery-baseline','presentation','header'].includes(suite))preload+='await page.goto(origin);';
+    if(!discovery&&!periodic&&!ambient&&!universal&&!evidence&&!['optimization','quiz-first-attempt','recovery','recovery-baseline','presentation','header','feedback'].includes(suite))preload+='await page.goto(origin);';
+    if(suite==='feedback')preload+='await page.addInitScript({content:'+JSON.stringify(
+      readFileSync(join(__dirname,'feedback-prototype.cjs'),'utf8')+
+      '\nglobalThis.fixtureFeedback={feedbackSchedule,feedbackCategory,recognizeFeedback};')+'});';
     if(baseline||suite==='periodic-baseline'||suite==='ambient-baseline'||suite==='universal-baseline'||suite==='evidence-baseline'){
       const version=baseline?'2.0.4':ambient?'2.0.9':universal?'2.0.9.1':evidence?'2.1.0':'2.0.7';
       for(const file of ambient?['content.js','styles.css']:['core.js','content.js']){
@@ -62,7 +66,8 @@ const guard=`async page=>{
     const file=join(tmpdir(),'ug-browser-'+randomUUID()+'.js');
     let out;
     try{
-      writeFileSync(file,guard.replace('const result=await (',preload+'const result=await (')+code+')(page,'+(baseline||suite.endsWith('-baseline'))+','+alternative+','+JSON.stringify(reference)+');if(violations.length)throw Error(violations.join(", "));return result;}');
+      writeFileSync(file,guard.replace(' const origin=', ' const feedbackSandbox='+(suite==='feedback')+';\n const origin=')
+        .replace('const result=await (',preload+'const result=await (')+code+')(page,'+(baseline||suite.endsWith('-baseline'))+','+alternative+','+JSON.stringify(reference)+');if(violations.length)throw Error(violations.join(", "));return result;}');
       out=run('run-code','--filename',file);
     }finally{try{unlinkSync(file);}catch{}}
     const payload=out.split('### Result')[1];

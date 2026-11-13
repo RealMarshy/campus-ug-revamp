@@ -1,4 +1,109 @@
-# Verificaciones de Campus UG Revamp 2.2.0
+# Verificaciones de Campus UG Revamp
+
+## Auditoría final de la candidata 2.3.0
+
+El paquete de publicación pesa 64.592 bytes. SHA-256 `5CFF961B98D77455ABBB71A68C96B4BD20FF59849ED49512B0D39BE0BAFDA3D3`. La única entrada actualizada respecto del ZIP de la auditoría fue el README con el enlace de descarga oficial. Los scripts, el manifiesto, los estilos, la ilustración y las licencias conservaron sus bytes.
+
+El usuario comprobó en Moodle UG la disponibilidad de una encuesta en Próximas y Pendientes con el selector oculto, la clasificación manual de encuestas cerradas, dos entregas confirmadas por Moodle, los vencimientos, los contadores y el comportamiento de los foros. La última sincronización observada por el usuario terminó sin fallos de calendario ni de actividad. Después de responder, la reverificación individual detectó la entrega. No se realizaron interacciones académicas durante la auditoría.
+
+### Cómo se actualiza el estado tras una entrega
+
+| Acción | Calendario | Estado de la encuesta |
+| --- | --- | --- |
+| Actualizar | Vuelve a consultar el mes actual y los dos siguientes cuando el backoff y la coordinación entre pestañas lo permiten. Reutiliza los meses anteriores vigentes. | Respeta el TTL, las decisiones manuales y la espera por fallos. Un resultado vigente puede conservar el estado anterior tras un envío reciente. |
+| Reverificar todo | Revisa los seis meses, salvo si puede compartir una revisión equivalente de otra pestaña. | Fuerza la comprobación de las actividades elegibles, incluidas las encuestas conocidas en ese alcance. Conserva la precedencia manual. Los foros siguen siendo manuales. |
+| Reverificar esta actividad | No consulta el calendario. | Comprueba la actividad seleccionada en `view.php`. Si otra pestaña ya efectuó una lectura válida para la misma solicitud, puede reutilizarla. No añade una segunda ronda automática. |
+| Sincronización periódica | Refresca los meses recientes. Al recuperar visibilidad puede incorporar actividad histórica conforme a la política existente. | Reutiliza la política ordinaria. Solo se ejecuta con la pestaña visible y según el intervalo elegido. |
+| Recarga con caché vigente | Reutiliza los meses vigentes. | La vigencia habitual es de 10 minutos para pendientes y 24 horas para confirmadas. Las actividades con cierre comprobado pueden aplazarse hasta la sonda de archivo de siete días. Un cambio de metadatos, una espera vencida o una lectura forzada pueden adelantar la comprobación. |
+
+El intervalo periódico es de 10 minutos por defecto y se puede cambiar a 15, 30 o desactivar. El envío de una encuesta en Moodle no dispara una lectura en Revamp. En el ZIP extraído se reprodujo el flujo con dos encuestas ficticias. La carga inicial hizo seis consultas de calendario y dos GET de actividad. Actualizar añadió tres consultas de calendario y reutilizó ambos estados. Reverificar la encuesta recién respondida añadió un solo GET y la movió a Entregadas. La recarga preservó la declaración manual y no añadió lecturas de encuesta.
+
+### Integridad y alcance
+
+Se verificó el manifiesto 2.3.0, la carpeta y el ID registrados en Chrome, y la equivalencia funcional entre la instalación personal, el borrador y los archivos extraídos. La copia personal conserva su JPG y el borrador y el ZIP usan el PNG público bajo CC0. La licencia MIT coincide en las tres copias. El ZIP contiene ocho archivos públicos y pesa 64.609 bytes. SHA-256 `BEE376CA1244818A1B8C8F7E44440B402F51181D6CA1DB15A441185F034B3523`.
+
+Chrome aislado cargó el ZIP, mostró el estado de las encuestas y la ilustración pública y conservó la declaración manual después de recargar. La prueba solo permitió el GET de la vista principal, la comprobación del área personal y el método existente de lectura de calendario. El acceso a `complete.php` y los envíos académicos quedaron fuera del flujo. No se abrió el almacenamiento académico personal. GitHub seguía en 2.2.0 y el ZIP histórico conservaba su huella.
+
+### Resultados y veredicto
+
+- Node aprobó 36 pruebas. Chrome aprobó 623 comprobaciones en las 23 suites predeterminadas más `recovery-baseline`, 24 en total, con cero fallos y cero omisiones en la ejecución. En la suite de recuperación, el fixture con timeouts concluyó en aproximadamente 31 segundos por los retardos programados.
+- Se añadió una comprobación focalizada de entrega detectada por el ciclo periódico tras vencer el TTL. El primer intento instaló el reloj después de arrancar los temporizadores y agotó la espera. Con el reloj instalado antes de navegar, Feedback aprobó sus 70 comprobaciones. Las demás suites de la batería completa conservaron el mismo código funcional.
+- La muestra de rendimiento de evidencia hizo 24 solicitudes y 17 comprobaciones en frío. Con caché vigente hizo una consulta de sesión y cero comprobaciones de actividad. La sincronización en frío tardó 65 ms en esa muestra local. No se extrapola a Moodle UG.
+- Quedan sin validar en el campus las variantes de múltiples envíos, el anonimato y los cambios de permisos. Las confirmaciones observadas únicamente en `complete.php` siguen fuera del detector automático.
+
+**APTO PARA PUBLICACIÓN.** La auditoría no identificó defectos bloqueantes. Se modificaron únicamente la prueba focalizada y este registro. La versión y el ZIP permanecen intactos.
+
+## Visibilidad de Participación en 2.3.0
+
+El selector se muestra cuando el cierre coincide con una verificación de indisponibilidad y la participación sigue sin confirmarse, o si existe una declaración manual que editar en esa encuesta cerrada. El vencimiento por sí solo no habilita el selector. Un control de respuesta válido después del vencimiento mantiene la disponibilidad y la actividad figura en Atrasadas y Pendientes. Ocultar el selector no altera decisiones guardadas ni realiza consultas.
+
+## Corrección de Feedback en 2.3.0
+
+La clasificación ya incluía en Próximas y Pendientes una encuesta reconocida como disponible. El detector descartaba controles fuera de una jerarquía CSS específica o sin `courseid`. El sandbox reproduce ese rechazo y valida un enlace localizado sin ese parámetro y un formulario con ID oculto. La corrección exige un destino de la misma instancia Moodle, la ruta esperada y el ID inequívoco de la actividad. También exige que el control esté habilitado. Solo se lee el destino declarado. El DOM real de la encuesta y el resultado final de la consulta anterior siguen pendientes.
+
+El selector Participación guarda una decisión explícita en el historial existente de la cuenta. Las marcas positivas de la versión anterior se conservan. Las marcas negativas antiguas sin declaración explícita se interpretan como desconocidas y se conservan en disco. Una decisión explícita prevalece sobre el estado automático. Retirarla recupera la evidencia ya almacenada sin iniciar una consulta. Se usa el archivado existente cuando Moodle confirma que la encuesta cerró y el cierre coincide con el calendario.
+
+El ZIP extraído cargó en un perfil aislado de Chrome. Se comprobó el reconocimiento de un enlace localizado, la persistencia de una declaración negativa tras recargar, dos GET de actividad para dos encuestas y el PNG público. La observación de `complete.php` sigue siendo documental.
+
+Pasaron 36 pruebas Node y 621 comprobaciones en 23 suites de Chrome, sin fallos ni omisiones. Después de sincronizar las tres copias se repitió Feedback con 67 comprobaciones. Cuatro encuestas requirieron cuatro GET iniciales, un reintento HTTP 503 y una reverificación individual iniciada por la prueba. Cambiar o retirar declaraciones no añadió consultas de actividad. El ZIP corregido pesa 64.532 bytes y su SHA-256 es `403ED8FBB4D0D097CBB29CD6AE22F468A9AE46062E66C25A5F5BBD32F01D887A`.
+
+## Integración local 2.3.0
+
+Las capturas reales confirman el control «Responda a las preguntas», el aviso de indisponibilidad, dos aperturas en la vista diaria y los avisos de envío en `complete.php`. El registro distingue esos hechos de las estructuras que aún requieren inspección del campus. [Observaciones de Moodle UG](docs/feedback/OBSERVACIONES-MOODLE-UG.md).
+
+La implementación valida los eventos de Feedback, agrupa por ID de módulo y conserva apertura y cierre por separado. Las fechas contradictorias producen Sin verificar. La apertura nunca se muestra como vencimiento. La verificación usa la vista principal con cuenta y módulo confirmados, mediante la política existente de caché, bloqueo, cancelación y recuperación. Un aviso de disponibilidad o un cierre no confirman una entrega. Las confirmaciones válidas se conservan ante observaciones posteriores ambiguas y las decisiones manuales prevalecen.
+
+No se añadió un script pasivo a `complete.php`. La captura confirma mensajes en esa ruta, pero no aporta un vínculo DOM verificado entre aviso, cuenta y módulo. La extensión comprueba la señal equivalente en `view.php` si el servidor la ofrece. Las variantes que solo muestran confirmación en `complete.php` se pueden marcar manualmente. Las consultas a la vista principal pueden generar el registro normal de visita de Moodle. [Vista principal de Moodle](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/feedback/view.php#L56).
+
+El ZIP cargó en un perfil temporal de Chrome con Manifest V3. Un calendario simulado con apertura y cierre para una encuesta generó una fila y un GET de actividad. También se verificó que cargara la ilustración pública.
+
+Pasaron 35 pruebas Node y 609 comprobaciones en las 23 suites de Chrome, sin fallos ni omisiones. Después de sincronizar la instalación personal se repitió Feedback con 56 comprobaciones, incluida la prueba añadida de los instantes de apertura y cierre. El fixture integrado descubrió tres encuestas con seis eventos y realizó tres GET iniciales, un reintento por HTTP 503 y una reverificación individual solicitada por la prueba. La recarga con caché no repitió las lecturas de encuesta. El escenario de referencia sin encuestas en la sincronización hizo siete consultas. Mil clasificaciones sobre DOM ya analizado tardaron 18 ms en la muestra final. Son tiempos locales y excluyen descarga y análisis inicial del HTML.
+
+La instalación registrada y el borrador contienen la misma lógica 2.3.0. La copia personal conserva su JPG y el paquete usa el PNG público. El ZIP pesa 63.603 bytes. SHA-256 `07F5D1EE86734A21AE93127CD6B675DA04F23659FA78446D27F3839012939AEC`. La validación usó Moodle simulado y no accedió a la cuenta académica. Queda por confirmar el DOM y el calendario mensual de UG al recargar la instalación habitual.
+
+## Corrección de foros preparada para 2.3.0
+
+Los foros por confirmar aparecen en Pendientes y, según la fecha guardada, en Próximas o Atrasadas. Las filas reutilizan el aviso ámbar de menos de 24 horas y el aviso rojo después del vencimiento. Las marcas manuales y las entregas históricas conservan su precedencia. Desmarcar devuelve el foro a su categoría por fecha y al contador de foros por confirmar. La combinación de filtros sigue mostrando una fila por módulo e identificador. El cambio usa la fecha ya almacenada y no consulta la participación.
+
+Pasaron 34 pruebas Node y 260 comprobaciones en siete suites de Chrome con Moodle simulado. Se repitieron Migración, Navegador y Diagnóstico tras ajustar los selectores de prueba y la expectativa del texto de un foro desmarcado. Migración confirmó cero consultas a foros, preservación de los estados históricos y persistencia de las marcas.
+
+## Investigación experimental de Moodle Feedback
+
+El prototipo está en `tests/feedback-prototype.cjs`. Se carga únicamente en la suite `feedback` del sandbox. La instalación personal y el ZIP de distribución siguen en 2.2.0. La decisión de posponer la integración se basa en dos límites de Moodle. Una encuesta sin eventos de apertura o cierre puede ser invisible para el descubrimiento por calendario. Además, `view.php` no siempre expone si la cuenta respondió, en particular si se permiten varios envíos o si se trata de una respuesta anónima sin confirmación individual.
+
+### Evidencia de Moodle
+
+- En Moodle 4.5, la vista principal requiere acceso al curso. Muestra el enlace de respuesta cuando la encuesta está abierta y la cuenta puede responder. La barra de acciones usa `complete.php` y añade `gopage` al reanudar desde una página posterior. El sandbox inspecciona ese destino como texto. Moodle puede registrar un evento de visualización en `view.php`. La ruta `complete.php` puede marcar la actividad como vista e iniciar el procesamiento del formulario. [Vista principal](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/feedback/view.php), [barra de acciones](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/feedback/classes/output/standard_action_bar.php), [formulario](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/feedback/complete.php).
+- Moodle usa el mismo aviso para «aún no abre» y «ya cerró». El prototipo solo los distingue cuando ese aviso coincide con una fecha válida del calendario. Un cierre por sí solo no confirma participación. Para confirmar un envío, la prueba exige el aviso específico en el contenedor de estado, con la cuenta y el módulo verificados. Los informes agregados y los mensajes personalizados de la actividad no constituyen confirmación. [Vista principal](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/feedback/view.php), [plantilla de notificaciones](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/lib/templates/notification_base.mustache).
+- Moodle crea eventos `open` y `close` por separado cuando se configuran sus fechas. El prototipo lee la respuesta mensual existente y comprueba módulo, origen, ruta, identificador y fechas. Trata la apertura como contexto y usa el cierre explícito como vencimiento. Ignora fechas contradictorias. La visibilidad de los eventos y la aparición de una acción en la línea de tiempo dependen de condiciones distintas. Hay que comprobar qué campos y eventos llegan al calendario mensual del campus. [Generación de eventos y acción de calendario](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/feedback/lib.php#L719).
+- Cuando se permiten varios envíos, el control para responder indica disponibilidad y deja la participación previa indeterminada. La opción de anonimato y los enlaces a estadísticas tampoco prueban un envío individual. Una marca manual tiene precedencia en la clasificación simulada y no cambia la evidencia automática. [Reglas de envío](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/feedback/classes/completion.php#L602), [consulta de participación](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/feedback/classes/structure.php#L226).
+
+### Reproducción y límites
+
+Ejecuta `npm test` y, con `UG_PLAYWRIGHT_CLI` configurado, `node tests/run-browser.cjs feedback`. El sandbox usa cuentas ficticias y analiza el HTML una vez por inspección. Reutiliza la comprobación de identidad de Revamp, rechaza redirecciones y solo permite consultar la vista principal. Los POST observados corresponden al método de lectura mensual del calendario que ya usa 2.2.0. Las marcas manuales se prueban como entrada de clasificación. El prototipo no tiene persistencia ni acceso a datos académicos.
+
+Las señales del HTML en inglés se basan en Moodle 4.5. Falta confirmar el HTML renderizado por el tema de Moodle UG, los avisos localizados y la presencia de los eventos. Para validar, basta una muestra sanitizada con el identificador de módulo reemplazado consistentemente, las clases del contenedor y del aviso, el texto genérico del aviso, la ruta y los nombres de parámetros del enlace, y el tipo de evento con fechas ficticias consistentes. Excluye preguntas, respuestas, nombres, HTML completo, sesiones y tokens. La encuesta sin fechas del sandbox se inspecciona usando un ID ya conocido. No representa descubrimiento automático.
+
+En el exportador oficial, `viewurl` lleva al día del calendario, `action.url` es opcional y `instance` representa el ID del módulo cuando hay un módulo asociado al evento. El prototipo comprueba estas variantes y nunca toma un ID de `viewurl`. La confirmación en el campus debe incluir qué campos vienen efectivamente en la respuesta mensual. [Exportador de eventos](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/calendar/classes/external/event_exporter_base.php).
+
+### Resultados del sandbox
+
+| Caso | Resultado |
+| --- | --- |
+| Abierta y con control habilitado | Disponible. Próximas con un cierre futuro confirmado. |
+| Aún no abierta, acceso restringido o cerrada | Sin verificar con una explicación acorde a la evidencia. |
+| Confirmación explícita de envío | Entregadas. |
+| Admite varios envíos | Disponible si aparece el control. La participación anterior queda sin confirmar. |
+| Anónima sin confirmación individual | Sin verificar. Una marca manual puede clasificarla como Entregada. |
+| Respuesta en curso | Disponible para continuar. La respuesta sigue sin confirmación de envío. |
+| Disponible sin fechas y con ID conocido | Pendientes. El calendario del fixture no la descubre. |
+| HTML desconocido, señales contradictorias o módulo equivocado | Sin verificar. |
+| Sesión caducada o identidad distinta | La lectura se rechaza antes de clasificar el estado. |
+| Bloqueada que pasa a disponible | La nueva inspección la clasifica en Próximas si el cierre sigue siendo futuro. |
+
+Pasaron 34 pruebas Node. Las 22 suites existentes aprobaron 552 comprobaciones de Chrome. La primera ejecución de la nueva suite falló porque el entorno de Playwright que ejecutaba el fixture no exponía el constructor `URL`. La suite corregida aprobó 47 comprobaciones con 22 escenarios y dos inspecciones de seguimiento.
+
+En ese fixture, 2.2.0 hizo siete consultas y completó su sincronización en 44 ms. El prototipo reutilizó esa respuesta del calendario y añadió 24 GET simulados, uno por inspección. Hubo cero consultas a formularios, cero escrituras académicas y cero consultas nuevas al calendario. Mil clasificaciones sobre un DOM ya analizado tardaron 23 ms en una muestra. Este tiempo excluye descarga y análisis inicial del HTML, y no estima la latencia del campus. Las solicitudes de la instalación personal se mantienen en el nivel de 2.2.0 porque el prototipo solo se ejecuta en el sandbox.
 
 ## Advertencia de recuperación
 

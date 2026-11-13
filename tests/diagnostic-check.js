@@ -58,7 +58,7 @@ async page=>{
  check(await page.getByRole('tab',{name:'Pendientes 5',exact:true}).count()===1,'Quiz disponible y foros sin confirmar quedan pendientes');
  // Previously confirmed status must survive a failed revalidation.
  await fresh('normal');
- await page.getByRole('button',{name:'Marcar como entregada',exact:true}).click();
+ await page.locator('[data-toggle="assign:5"]').click();
  await page.evaluate(async()=>{await fetch('/mode?value=http');const d=JSON.parse(localStorage.fixture);const k=Object.keys(d).find(k=>k.endsWith(':history'));d[k].changes.find(c=>c.type==='auto'&&c.key==='assign:1').value.t=Date.now()-2*86400e3;localStorage.fixture=JSON.stringify(d);});
  await page.reload();await wait();
  check(await page.evaluate(()=>{const d=JSON.parse(localStorage.fixture);return Object.values(d).some(v=>v.changes?.some(c=>c.type==='auto'&&c.key==='assign:1'&&c.value.done===true));}), 'Prior confirmation retained');

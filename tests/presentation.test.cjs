@@ -50,13 +50,14 @@ test('Apariencia conserva las preferencias anteriores y valida el modo',()=>{
   assert.equal(presentation({schema:1,appearance:'night'}).appearance,'auto');
 });
 
-test('Unión por módulo y CMID, con manuales solo en Pendientes y orden según la selección',()=>{
+test('Unión por módulo y CMID, con foros en Pendientes y en su categoría de vencimiento',()=>{
   const row=(mod,cmid,b,due)=>({it:{mod,cmid,due},b});
   const rows=[row('assign','1','proximas',9),row('assign','1','proximas',9),
-    row('quiz','1','atrasadas',2),row('forum','1','manuales',4),row('assign','2','entregadas',8),
+    row('quiz','1','atrasadas',2),row('forum','1','proximas',4),row('assign','2','entregadas',8),
     row('quiz','2','desconocidas',5)];
   const due=ids=>presentationList(rows,ids).map(it=>it.due);
   assert.deepEqual(due(['pendientes','proximas']),[2,4,9]);
+  assert.deepEqual(due(['proximas']),[4,9]);
   assert.deepEqual(due(['pendientes','desconocidas']),[2,4,5,9]);
   assert.deepEqual(due(['atrasadas','entregadas']),[8,2]);
   assert.deepEqual(due([]),[]);

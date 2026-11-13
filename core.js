@@ -5,8 +5,36 @@
     calendar: 15*60e3, history: 24*3600e3, archiveProbe: 7*24*3600e3, timeout: 15000, concurrency: 3,
     recoveryTimeout: 25000, recoveryBudget: 75000, recoveryLimit: 6, maxServerWait: 2000,
     periodicRecoveryBudget: 25000, periodicRecoveryLimit: 2 });
-  const mods = { assign: 'Tarea', quiz: 'Cuestionario', forum: 'Foro' };
+  const mods = { assign: 'Tarea', quiz: 'Cuestionario', forum: 'Foro', feedback:'Encuesta' };
+  const feedbackStates=['available','in_progress','not_yet_open','closed','restricted','unknown'];
+  const calendarTime=value=>Number.isSafeInteger(value)&&value>0&&value<=8640000000000;
+  const positiveId=value=>/^[1-9]\d*$/.test(value??'');
+  function feedbackTarget(value,origin) {
+    try {
+      const url=new URL(value,origin);
+      if(url.origin===origin&&url.pathname==='/mod/feedback/view.php'&&!url.username&&!url.password&&!url.hash&&
+        url.searchParams.size===1&&positiveId(url.searchParams.get('id')))return url.searchParams.get('id');
+    } catch {}
+    return null;
+  }
+  function feedbackItem(ev,origin) {
+    if(!['open','close'].includes(ev.eventtype)||ev.visible===0||ev.visible===false||!positiveId(ev.id)||
+       !calendarTime(ev.timestart)||(ev.timesort!=null&&ev.timesort!==ev.timestart))return null;
+    const cmid=ev.instance==null?null:Number.isSafeInteger(ev.instance)&&positiveId(ev.instance)?String(ev.instance):false;
+    if(cmid===false)return null;
+    const target=ev.action?.url??ev.url;
+    const linked=target==null?null:feedbackTarget(target,origin);
+    if(target!=null&&(!linked||(cmid&&linked!==cmid)))return null;
+    const id=cmid??linked;
+    if(!id)return null;
+    const close=ev.eventtype==='close';
+    return {id:String(ev.id),cmid:id,mod:'feedback',url:`${origin}/mod/feedback/view.php?id=${id}`,
+      name:String(ev.activityname||ev.name||'Encuesta').slice(0,1000),
+      courseId:Number(ev.course?.id)||0,course:String(ev.course?.fullnamedisplay||ev.course?.fullname||'Sin curso').slice(0,1000),
+      due:close?ev.timestart:null,openAt:close?null:ev.timestart*1000,closeAt:close?ev.timestart*1000:null};
+  }
   function item(ev, origin) {
+    if(ev?.modulename==='feedback')return feedbackItem(ev,origin);
     if (!Object.hasOwn(mods, ev?.modulename) || !['due','close'].includes(ev.eventtype)) return null;
     let url;
     try { url = new URL(ev.url, origin); } catch { return null; }
@@ -27,9 +55,10 @@
       if (!/^\d{4}-\d{1,2}$/.test(key) || !Array.isArray(month?.items)) continue;
       const timestamp = Number.isFinite(month.t) && month.t <= now ? month.t : 0;
       out.months[key] = { t: timestamp, items: month.items.flatMap(i => {
-        const valid = item({ id:i?.id, name:i?.name, modulename:i?.mod, eventtype:'due', url:i?.url,
-          timesort:i?.due, course:{id:i?.courseId,fullname:i?.course} }, origin);
-        return valid ? [{...valid, closeAt:valid.mod==='quiz' && i.closeAt===valid.due*1000 ? i.closeAt:null, synced: Number.isFinite(i.synced) && i.synced<=now ? i.synced : timestamp}] : [];
+        const valid = item({ id:i?.id, name:i?.name, modulename:i?.mod,
+          ...(i?.mod==='feedback'?{eventtype:i.openAt!=null?'open':'close',timestart:(i.openAt??i.closeAt)/1000}: {eventtype:'due',timesort:i?.due}),url:i?.url,
+          course:{id:i?.courseId,fullname:i?.course} }, origin);
+        return valid ? [{...valid, closeAt:valid.mod==='feedback'?valid.closeAt:valid.mod==='quiz' && i.closeAt===valid.due*1000 ? i.closeAt:null, synced: Number.isFinite(i.synced) && i.synced<=now ? i.synced : timestamp}] : [];
       }) };
     }
     for (const [key,s] of Object.entries(raw.auto || {})) {
@@ -39,7 +68,8 @@
       const absence=!s.done&&source==='moodle'&&key.startsWith('quiz:')&&
         ['quiz_no_attempts','quiz_unavailable'].includes(s.absence)?s.absence:null;
       out.auto[key] = {done:s.done,t,source,...(s.recheck ? {recheck:true} : {}),...(absence?{absence}:{}),
-        ...(absence==='quiz_no_attempts'&&s.available===true?{available:true}:{})};
+        ...(absence==='quiz_no_attempts'&&s.available===true?{available:true}:{}),
+        ...(key.startsWith('feedback:')&&source==='moodle'&&!s.done&&feedbackStates.includes(s.feedbackState)?{feedbackState:s.feedbackState}:{})};
     }
     out.updated = Number(raw.updated) || 0;
     return out;
@@ -52,7 +82,7 @@
     return now-s.t >= (s.done ? CONFIG.completed : CONFIG.pending);
   }
   function verificationDecision({item,status,manual,failure,stamp,closeAt=null,mode='normal',now=Date.now()}) {
-    if(!['assign','quiz'].includes(item.mod))return 'manual';
+    if(!['assign','quiz','feedback'].includes(item.mod))return 'manual';
     if(mode==='all'||mode==='one')return 'check';
     if(typeof manual==='boolean')return 'manual';
     if(failure && now<failure.retryAt)return 'backoff';
@@ -72,6 +102,7 @@
     const method=options.method??'GET';
     if(method==='GET' && options.body==null){
       if(target.pathname==='/my/' && !target.search)return true;
+      if(target.pathname==='/mod/feedback/view.php')return /^\?id=[1-9]\d*$/.test(target.search);
       return /^\/mod\/(assign|quiz)\/view\.php$/.test(target.pathname) && /^\?id=\d+$/.test(target.search);
     }
     if(method!=='POST'||target.pathname!=='/lib/ajax/service.php')return false;
@@ -139,14 +170,14 @@
   function cleanFailures(raw, now=Date.now()) {
     const out={};
     for(const [k,v]of Object.entries(raw||{})) {
-      if(!/^(assign|quiz|forum):\d+$/.test(k) && !/^calendar:\d{4}-\d{1,2}$/.test(k) && k!=='session')continue;
+      if(!activityKey(k) && !/^calendar:\d{4}-\d{1,2}$/.test(k) && k!=='session')continue;
       if(!Object.hasOwn(ERROR_LABELS,v?.code)||!Number.isFinite(v.t)||v.t>now||!Number.isFinite(v.retryAt))continue;
       out[k]={code:v.code,t:v.t,retryAt:Math.min(Math.max(v.retryAt,v.t),v.t+6*3600e3),attempts:Math.min(Math.max(Number(v.attempts)||1,1),10),
-        details:safeDetails(v.details),...(/^(assign|quiz):/.test(k)&&v.recoveryFailed===true?{recoveryFailed:true}:{})};
+        details:safeDetails(v.details),...(/^(assign|quiz|feedback):/.test(k)&&v.recoveryFailed===true?{recoveryFailed:true}:{})};
     }
     return out;
   }
-  const activityKey = key => /^(assign|quiz|forum):\d+$/.test(key);
+  const activityKey = key => /^(assign|quiz|forum|feedback):\d+$/.test(key);
 
   // The original keys are immutable. Replay only the changes made by 2.0.3.
   function readState(data, prefix, origin, now=Date.now()) {
@@ -159,11 +190,19 @@
     const cache=clean(baseline,origin,now);
     const failures=cleanFailures(data[prefix+'failures'],now);
     const manual={};
+    const manualDecision=(id,value)=>{
+      if(id.startsWith('feedback:')){
+        if(value?.participation==='completed'||value?.participation==='not_completed')return value.participation==='completed';
+        return value?.done===true?true:undefined;
+      }
+      return typeof value?.done==='boolean'?value.done:undefined;
+    };
     const manualPrefix=prefix+'manual:';
     for(const [key,value] of Object.entries(data)){
       if(!key.startsWith(manualPrefix))continue;
       const id=key.slice(manualPrefix.length);
-      if(activityKey(id) && typeof value?.done==='boolean')manual[id]=value.done;
+      const decision=manualDecision(id,value);
+      if(activityKey(id)&&decision!==undefined)manual[id]=decision;
     }
     for(const change of history?.changes||[]){
       const {type,key,value}=change||{};
@@ -173,8 +212,9 @@
       }else if(type==='auto' && activityKey(key) && typeof value?.done==='boolean'){
         cache.auto[key]=clean({schema:2,auto:{[key]:value}},origin,now).auto[key];
       }else if(type==='manual' && activityKey(key)){
-        if(value===null)delete manual[key];
-        else if(typeof value?.done==='boolean')manual[key]=value.done;
+        const decision=manualDecision(key,value);
+        if(decision!==undefined)manual[key]=decision;
+        else if(value===null||(key.startsWith('feedback:')&&value?.done===false))delete manual[key];
       }else if(type==='failure'){
         if(value===null && Object.hasOwn(failures,key))delete failures[key];
         else Object.assign(failures,cleanFailures({[key]:value},now));
@@ -213,6 +253,73 @@
     if(!who.userId)throw problem('IDENTITY_MISSING',{identity:'missing'});
     if(who.userId!==expected)throw problem('ACCOUNT_CHANGED',{identity:'different'});
   }
+  function recognizeFeedback(doc, {origin,userId,cmid,window={},now=Date.now()}) {
+    checkIdentity(doc,userId);
+    const result=(state,reason)=>({state,reason,done:state==='completed'});
+    const main=doc.querySelector('#region-main')??doc.querySelector('main, [role="main"]');
+    const ids=[...doc.body.classList].filter(name=>/^cmid-/.test(name));
+    if(doc.body.id!=='page-mod-feedback-view'||ids.length!==1||ids[0]!=='cmid-'+cmid||
+      !/^[1-9]\d*$/.test(cmid)||!main||main.closest('[aria-busy="true"]')){
+      return result('unknown','La vista o el módulo no se pudieron confirmar');
+    }
+    if(window.conflict)return result('unknown','El calendario muestra fechas contradictorias');
+    const visible=node=>{
+      if(node.closest('[hidden], [inert], [aria-hidden="true"], .d-none, .hidden, .visually-hidden, template, noscript'))return false;
+      for(let parent=node;parent;parent=parent.parentElement){
+        if(parent.style.display==='none'||['hidden','collapse'].includes(parent.style.visibility))return false;
+      }
+      return true;
+    };
+    const notices=[...main.querySelectorAll('.alert.alert-block')].filter(node=>
+      visible(node)&&!node.closest('.feedback_description, .feedback_after_submit, form'));
+    const message=node=>[...node.childNodes].filter(child=>!child.matches?.("button")).map(child=>child.textContent).join("").trim().replace(/\s+/g,' ');
+    const statusMessages=notices.filter(node=>node.parentElement.matches('.generalbox.boxaligncenter')).map(message);
+    const signals=new Set();
+    if(statusMessages.some(text=>["You've already completed this activity.","Usted ya ha entregado esta retroalimentación."].includes(text)))signals.add('completed');
+    if(notices.some(node=>message(node)==='You can only access this feedback from a course'))signals.add('restricted');
+    if(statusMessages.some(text=>['The feedback is not open','La encuesta no está disponible'].includes(text)))signals.add('not_open');
+    const links=[...main.querySelectorAll('a[href], button, input[type="submit"]')].filter(control=>
+      visible(control)&&!control.matches(':disabled')&&!control.closest('.disabled, [aria-disabled="true"]')&&
+      (control.matches('a[href]')||control.type==='submit')&&
+      (control.matches('.feedback_description .tertiary-navigation .navitem a.btn.btn-primary[href]')||
+       /^(Responda a las preguntas|Answer the questions)$/i.test((control.value||control.textContent).trim().replace(/\s+/g,' '))));
+    const actions=links.flatMap(link=>{
+      const form=link.form;
+      if(form&&(!main.contains(form)||!visible(form)||form.closest('.disabled, [aria-disabled="true"]')||
+        link.hasAttribute('formmethod')))return [];
+      let url;
+      const target=link.getAttribute('href')??link.getAttribute('formaction')??form?.getAttribute('action');
+      if(!target||(!form&&!link.matches('a[href]')))return [];
+      try{url=new URL(target,origin+'/mod/feedback/view.php');}catch{return [];}
+      if(url.origin!==origin||url.pathname!=='/mod/feedback/complete.php'||url.username||url.password||url.hash)return [];
+      for(const field of form?.elements??[]){
+        if(field.matches('input[type="hidden"]:not(:disabled)')&&['id','courseid','gopage'].includes(field.name))
+          url.searchParams.append(field.name,field.value);
+      }
+      if(url.searchParams.get('id')!==cmid||url.searchParams.getAll('id').length!==1||
+        (url.searchParams.has('courseid')&&(!positiveId(url.searchParams.get('courseid'))||url.searchParams.getAll('courseid').length!==1))||
+        [...url.searchParams.keys()].some(name=>!['id','courseid','gopage'].includes(name)))return [];
+      const page=url.searchParams.get('gopage');
+      if(page===null||page==='0'&&url.searchParams.getAll('gopage').length===1)return ['available'];
+      return positiveId(page)&&url.searchParams.getAll('gopage').length===1?['in_progress']:[];
+    });
+    if(signals.size>1||actions.length>1||(signals.size&&actions.length))return result('unknown','La página muestra señales contradictorias');
+    if(signals.has('completed'))return result('completed','Moodle confirma una respuesta enviada');
+    if(signals.has('restricted'))return result('restricted','Acceso restringido');
+    const beforeOpen=window.openAt!=null&&now<window.openAt;
+    const afterClose=window.closeAt!=null&&now>=window.closeAt;
+    if(signals.has('not_open')){
+      if(beforeOpen)return result('not_yet_open','Todavía no disponible');
+      if(afterClose)return result('closed','Cerrada sin participación confirmada');
+      return result('unknown','Moodle indica que no está abierta, sin fechas suficientes para distinguir la causa');
+    }
+    if(actions.length&&!beforeOpen){
+      return actions[0]==='in_progress'?result('in_progress','Respuesta en curso, sin envío confirmado'):
+        result('available','Disponible para responder; participación previa sin confirmar');
+    }
+    return result('unknown','Moodle no muestra un estado de participación verificable');
+  }
+
   function localizedFirstAttemptReason(start, action, main, origin, cmid, normalize, hasAttemptLink, localized) {
     const form=start.form;
     if(!form || form.method!=='post' || !action || action.origin!==origin || action.pathname!=='/mod/quiz/startattempt.php' ||
@@ -375,7 +482,7 @@
   }
 
   function matchesCategory(category, bucket) {
-    return category === 'pendientes' ? ['proximas','atrasadas','manuales'].includes(bucket) : category === bucket;
+    return category === 'pendientes' ? ['proximas','atrasadas','pendientes'].includes(bucket) : category === bucket;
   }
 
   function presentationList(rows, selected) {
@@ -387,6 +494,6 @@
     return [...result.values()].sort((a,b)=>ascending ? a.due-b.due : b.due-a.due);
   }
 
-  globalThis.UGCore = { CONFIG, mods, item, empty, clean, needsCheck, verificationDecision, allowsRequest, closeEvidence, identity, ERROR_LABELS, problem, retryAfter, recoveryWait, safeDetails, failureRecord, cleanFailures, checkIdentity, recognize, gradeText, readState, mergeMonth, completion, categories, titleLimit, presentation, matchesCategory, presentationList };
+  globalThis.UGCore = { CONFIG, mods, item, empty, clean, needsCheck, verificationDecision, allowsRequest, closeEvidence, identity, ERROR_LABELS, problem, retryAfter, recoveryWait, safeDetails, failureRecord, cleanFailures, checkIdentity, recognizeFeedback, recognize, gradeText, readState, mergeMonth, completion, categories, titleLimit, presentation, matchesCategory, presentationList };
   if(typeof module !== 'undefined') module.exports = globalThis.UGCore;
 })();

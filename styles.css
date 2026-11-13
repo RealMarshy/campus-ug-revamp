@@ -161,6 +161,7 @@
 .ugr-assign { background: var(--ugr-amber-bg); color: var(--ugr-amber); }
 .ugr-quiz { background: var(--ugr-blue-bg); color: var(--ugr-blue); }
 .ugr-forum { background: var(--ugr-purple-bg); color: var(--ugr-purple); }
+.ugr-feedback { background: var(--ugr-purple-bg); color: var(--ugr-purple); }
 
 .ugr-when { text-align: right; font-size: 0.8rem; white-space: nowrap; }
 .ugr-rel { color: var(--ugr-muted); }
@@ -243,6 +244,14 @@
 .ugr-diagnostic pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; color: var(--ugr-text); background: var(--ugr-surface); }
 .ugr-unknown { border-left-color: var(--ugr-control-border); }
 .ugr-actions { display: flex; gap: .25rem; flex-wrap: wrap; }
+.ugr-feedback-choice { display: grid; gap: .15rem; font-size: .75rem; max-width: 100%; }
+.ugr-feedback-choice select {
+  max-width: 100%;
+  color: var(--ugr-button-text, var(--ugr-text));
+  background: var(--ugr-button-bg, var(--ugr-bg));
+  border: 1px solid var(--ugr-button-border, var(--ugr-border));
+  border-radius: .3rem;
+}
 .ugr-preferences {
   display: grid;
   gap: .75rem;

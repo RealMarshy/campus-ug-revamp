@@ -2,7 +2,7 @@
   'use strict';
   if (document.getElementById('ugr-panel')) return;
   const C = UGCore, CFG = C.CONFIG, MODS = C.mods, ORIGIN = location.origin;
-  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.2.0';
+  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.3.0';
   const session = C.identity(document);
   const prefix = `ugr2:${ORIGIN}:${session.userId}:`;
   const historyKey=prefix+'history', lockName='campus-ug-revamp:'+session.userId;
@@ -94,7 +94,7 @@
       calendarTimes[month]=Math.max(t,cache.months[month].t);
     }
     for(const [id,v] of Object.entries(stored?.records??{})){
-      if(!/^(assign|quiz):\d+$/.test(id)||!Number.isFinite(v?.t)||v.t>Date.now()||!Number.isFinite(v.stateAt)||v.stateAt>v.t)continue;
+      if(!/^(assign|quiz|feedback):\d+$/.test(id)||!Number.isFinite(v?.t)||v.t>Date.now()||!Number.isFinite(v.stateAt)||v.stateAt>v.t)continue;
       const grade=id.startsWith('assign:')&&C.gradeText(v.grade);
       stamps[id]={t:v.t,stateAt:v.stateAt,closedAt:Number.isSafeInteger(v.closedAt)&&v.closedAt>0?v.closedAt:null,
         observedAt:Number.isFinite(v.observedAt)?v.observedAt:0,...(grade?{grade}:{})};
@@ -108,13 +108,26 @@
   const titleEntity=document.createElement('textarea');
   let plainTitles=new Map();
   function collect(){
-    const map=new Map();
-    for(const month of Object.values(cache.months))for(const it of month.items){
-      const id=key(it);
-      if(!map.has(id)||map.get(id).synced<=it.synced)map.set(id,it);
+    const map=new Map(), windows=new Map();
+    for(const month of Object.values(cache.months)){
+      const active=month.activeIds?new Set(month.activeIds):null;
+      for(const it of month.items){
+        const id=key(it);
+        if(!map.has(id)||map.get(id).synced<=it.synced)map.set(id,it);
+        if(it.mod!=='feedback'||(active&&!active.has(it.id)))continue;
+        if(!windows.has(id))windows.set(id,{open:new Set(),close:new Set()});
+        if(it.openAt!=null)windows.get(id).open.add(it.openAt);
+        if(it.closeAt!=null)windows.get(id).close.add(it.closeAt);
+      }
     }
     const nextTitles=new Map();
     state.items=[...map.values()].map(it=>{
+      if(it.mod==='feedback'){
+        const dates=windows.get(key(it));
+        const [openAt=null]=dates?.open??[], [closeAt=null]=dates?.close??[];
+        const conflict=dates?.open.size>1||dates?.close.size>1||(openAt!=null&&closeAt!=null&&openAt>=closeAt);
+        it={...it,openAt:conflict?null:openAt,closeAt:conflict?null:closeAt,due:conflict||closeAt==null?null:closeAt/1000,conflict};
+      }
       const name=nextTitles.get(it.name)??plainTitles.get(it.name)??it.name.replace(
         /&(?:#[0-9]{1,10}|#x[0-9a-f]{1,8}|[a-z][a-z0-9]{1,31});/gi,entity=>{
           titleEntity.innerHTML=entity;
@@ -165,6 +178,10 @@
     const html=await request(it.url,{},timeoutMs);
     if(!/<(?:html|body|main|div|table|script|form)\b/i.test(html))throw C.problem('HTML_INCOMPATIBLE');
     const doc=new DOMParser().parseFromString(html,'text/html');
+    if(it.mod==='feedback'){
+      const feedback=C.recognizeFeedback(doc,{origin:ORIGIN,userId:session.userId,cmid:it.cmid,window:it});
+      return {done:feedback.done,source:'moodle',t:Date.now(),closed:feedback.state==='closed',...(feedback.done?{}:{feedbackState:feedback.state})};
+    }
     const status=C.recognize(doc,it.mod,session.userId,ORIGIN,it.cmid);
     return {...status,closed:C.closeEvidence(doc,it.mod)};
   }
@@ -198,7 +215,7 @@
     }
     return state.items.filter(it=>it.mod!=='forum'&&(mode==='one'?key(it)===target:dates.has(key(it)))).map(it=>{
       const values=dates.get(key(it));
-      return {it,closeAt:values?.size===1?[...values][0]:null};
+      return {it,closeAt:it.mod==='feedback'?it.closeAt:values?.size===1?[...values][0]:null};
     });
   }
   const serverWaiting=f=>f?.code==='HTTP'&&Number.isFinite(f.details?.retryAfterMs)&&Date.now()<f.t+f.details.retryAfterMs;
@@ -227,7 +244,7 @@
     let initialErrors=0, retriesAttempted=0, recoveredAfterRetry=0, persistentErrors=0, initialDurationMs=0, recoveryDurationMs=0;
     let finalMessage='';
     let archived=0, reactivated=0, cacheHits=0, changed=0, detected=0, unknownClose=0, shared=false, saveStamps=periodic;
-    const recovered={forum:0,assign:0,quiz:0};
+    const recovered={forum:0,assign:0,quiz:0,feedback:0};
     const recognizedAbsences={quiz_no_attempts:0,quiz_unavailable:0};
     lastRun={mode,trigger,manual,checked:0,activityErrors:0,calendarErrors:0,skipped:0,recovered,recognizedAbsences};
     try{
@@ -269,7 +286,7 @@
             const changed=[];
             for(const it of fresh.items){
               const previous=previousItems.get(it.id);
-              const metadataChanged=!previous||['due','name','cmid','mod','course','courseId','closeAt'].some(field=>previous[field]!==it[field]);
+              const metadataChanged=!previous||['due','name','cmid','mod','course','courseId','closeAt','openAt'].some(field=>previous[field]!==it[field]);
               if(!metadataChanged)continue;
               changed.push(it);
             }
@@ -313,17 +330,18 @@
           retriesAttempted++;
         }
         try{
-          const status=await checkDone(it,timeoutMs);
+          let status=await checkDone(it,timeoutMs);
           assertSession();
           if(cancelled)return;
           if(round==='recovery'){recoveredAfterRetry++;errors--;}
           if(failures[key(it)])recovered[it.mod]++;
+          if(it.mod==='feedback'&&previous?.done&&previous.source==='moodle')status={...previous,t:status.t,closed:status.closed};
           if(Object.hasOwn(recognizedAbsences,status.absence))recognizedAbsences[status.absence]++;
-          const closedAt=!status.absence && status.closed && closeAt && status.t>closeAt ? closeAt:null;
+          const closedAt=!status.absence && status.closed && closeAt && (status.t>closeAt||it.mod==='feedback'&&status.t===closeAt) ? closeAt:null;
           if(stamp?.closedAt && stamp.closedAt!==closedAt)reactivated++;
-          if(!previous||previous.done!==status.done||previous.source!==status.source||previous.absence!==status.absence||previous.available!==status.available){
+          if(!previous||previous.done!==status.done||previous.source!==status.source||previous.absence!==status.absence||previous.available!==status.available||previous.feedbackState!==status.feedbackState){
             const value={done:status.done,source:status.source,t:status.t,...(status.absence?{absence:status.absence}:{}),
-              ...(status.available?{available:true}:{})};
+              ...(status.available?{available:true}:{}),...(status.feedbackState?{feedbackState:status.feedbackState}:{})};
             cache.auto[id]=value;
             changes.push({type:'auto',key:id,value});
             changed++;
@@ -516,15 +534,28 @@
   const completion=it=>C.completion(it,state.store.manual[key(it)],state.store.auto[key(it)]);
   const staleDelivered=it=>state.store.manual[key(it)]===undefined &&
     state.store.auto[key(it)]?.source==='moodle' && state.store.auto[key(it)].done && !!failures[key(it)];
+  const dueBucket=it=>it.due * 1000 < Date.now() ? 'atrasadas' : 'proximas';
+  const feedbackClosed=it=>it.closeAt!=null&&Date.now()>=it.closeAt&&stamps[key(it)]?.closedAt===it.closeAt;
+  const showFeedbackChoice=it=>it.mod==='feedback'&&feedbackClosed(it)&&
+    (state.store.manual[key(it)]!==undefined||!completion(it).done);
 
   const bucket = (it) => {
     const status=completion(it);
-    if(it.mod==='forum')return status.done?'entregadas':'manuales';
+    if(it.mod==='forum')return status.done?'entregadas':dueBucket(it);
+    if(it.mod==='feedback'){
+      if(status.done)return 'entregadas';
+      if(status.source==='manual')return feedbackClosed(it)?'atrasadas':it.due==null?'pendientes':dueBucket(it);
+      if(failures[key(it)]||it.conflict||feedbackClosed(it))return 'desconocidas';
+      const feedback=state.store.auto[key(it)]?.feedbackState;
+      if(it.openAt!=null&&Date.now()<it.openAt)return feedback==='not_yet_open'&&it.due!=null?'proximas':'desconocidas';
+      if(['available','in_progress'].includes(feedback))return it.due==null?'pendientes':dueBucket(it);
+      return 'desconocidas';
+    }
     if(staleDelivered(it))return 'entregadas';
     const auto=state.store.auto[key(it)];
     if(status.source!=='manual' && (failures[key(it)]||status.source==='unknown'||(auto?.absence&&!auto.available)))return 'desconocidas';
     if(status.done)return 'entregadas';
-    return it.due * 1000 < Date.now() ? 'atrasadas' : 'proximas';
+    return dueBucket(it);
   };
 
   function visible(course) {
@@ -584,6 +615,7 @@
   /* ---------- presentación ---------- */
 
   function rel(ts) {
+    if(ts==null)return 'Sin fecha límite confirmada';
     const diff = ts * 1000 - Date.now();
     const m = Math.floor(Math.abs(diff) / 60000);
     const h = Math.floor(m / 60);
@@ -593,7 +625,7 @@
   }
 
   const fmtDate = (ts) =>
-    new Date(ts * 1000).toLocaleString('es-EC', {
+    ts==null?'':new Date(ts * 1000).toLocaleString('es-EC', {
       weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
     });
 
@@ -615,27 +647,43 @@
         </div>
         <div class="ugr-when">
           <div>${esc(fmtDate(it.due))}</div>
-          ${unknown ? `<div class="ugr-rel">Sin verificar · ${esc(rel(it.due))}</div>` : done ? `<div class="ugr-rel">Entregada${grade?` · <span class="ugr-grade">Calificación: ${esc(grade)}</span>`:''}</div>` : classification==='manuales' ? '<div class="ugr-rel">Pendiente manual</div>' : `<div class="ugr-rel">${esc(rel(it.due))}</div>`}
+          ${unknown ? `<div class="ugr-rel">Sin verificar · ${esc(rel(it.due))}</div>` : done ? `<div class="ugr-rel">Entregada${grade?` · <span class="ugr-grade">Calificación: ${esc(grade)}</span>`:''}</div>` : `<div class="ugr-rel">${esc(rel(it.due))}</div>`}
         </div>
         <div class="ugr-actions">
         ${it.mod==='forum'?'':`<button type="button" class="ugr-toggle" data-reverify="${esc(key(it))}" title="Reverificar esta actividad" aria-label="Reverificar esta actividad">⟳</button>`}
-        <button type="button" class="ugr-toggle" data-toggle="${esc(key(it))}"
+        ${it.mod==='feedback'? (showFeedbackChoice(it)?`<label class="ugr-feedback-choice"><span>Participación</span>
+          <select data-feedback-choice aria-label="${esc('Confirmación manual: '+it.name)}">
+            <option value=""${state.store.manual[id]===undefined?' selected':''}>Dejar sin verificar</option>
+            <option value="completed"${state.store.manual[id]===true?' selected':''}>Sí, la completé</option>
+            <option value="not_completed"${state.store.manual[id]===false?' selected':''}>No la completé</option>
+          </select></label>`:'') : `<button type="button" class="ugr-toggle" data-toggle="${esc(key(it))}"
           title="${done ? 'Marcar como no entregada' : 'Marcar como entregada'}"
-          aria-label="${done ? 'Marcar como no entregada' : 'Marcar como entregada'}">${done ? '↺' : '✓'}</button>
+          aria-label="${done ? 'Marcar como no entregada' : 'Marcar como entregada'}">${done ? '↺' : '✓'}</button>`}
         </div>
       </li>`;
   }
 
   function sourceLabel(it){
     const status=completion(it);
+    if(it.mod==='feedback'&&status.source==='manual')return status.done?'Completada · Confirmación manual':
+      feedbackClosed(it)?'Encuesta cerrada · No completada (manual)':'No completada (manual)';
+    if(it.mod==='forum'&&!status.done)return 'Requiere confirmación manual';
     if(status.source==='manual')return failures[key(it)]&&it.mod!=='forum'
       ? 'Estado manual · última consulta fallida'
       : 'Estado manual';
     if(status.source==='historical')return 'Completada · confirmación automática histórica';
     if(status.source==='historical_unknown')return 'Completada · origen histórico desconocido';
-    if(status.source==='manual_pending')return 'Requiere confirmación manual';
     const s=state.store.auto[key(it)];
     const f=failures[key(it)];
+    if(it.mod==='feedback'){
+      if(status.done)return 'Entregada · Confirmada por Moodle';
+      if(feedbackClosed(it))return 'Encuesta cerrada · No se pudo comprobar la participación';
+      if(f||it.conflict)return 'Sin verificar · Estado de la encuesta sin confirmar';
+      if(s?.feedbackState==='not_yet_open'&&Date.now()<it.openAt)return 'Todavía no disponible · Abre '+fmtDate(it.openAt/1000);
+      if(it.openAt!=null&&Date.now()<it.openAt)return 'Sin verificar · Abre '+fmtDate(it.openAt/1000);
+      return {available:'Disponible para responder',in_progress:'Disponible para continuar',
+        restricted:'Acceso restringido'}[s?.feedbackState]??'Sin verificar · Participación sin confirmar';
+    }
     if(staleDelivered(it)){
       const t=stamps[key(it)]?.t??s.t;
       return `Último estado confirmado: entregada · ${t>0?new Date(t).toLocaleString('es-EC')+' · ':''}Reconfirmación pendiente (${C.ERROR_LABELS[f.code]}).`;
@@ -1042,7 +1090,7 @@
     const effective={manualPending:0,unknown:0,persistentActivityFailures:0,completed:{automatic:0,manual:0,historical:0,historicalUnknown:0,staleAutomatic:0}};
     for(const {it,b} of rows){
       const status=completion(it);
-      if(b==='manuales' && status.source==='manual_pending')effective.manualPending++;
+      if(it.mod==='forum'&&!status.done)effective.manualPending++;
       if(b==='desconocidas'){
         effective.unknown++;
       }
@@ -1062,21 +1110,31 @@
       lastPeriodicRun:lastPeriodicRun||null,nextPeriodicRun,lastPeriodicResult,
       effective,activeFailures:records,historicalForumFailures,recentIncidents:incidents},null,2);
   }
-  async function changeManual(id, reset=false){
+  async function changeManual(id, reset=false, participation){
     try{
       assertSession();
       await navigator.locks.request(lockName,async()=>{
         await readCache();
         const it=state.items.find(item=>key(item)===id);
         if(!it || (reset && (it.mod==='forum'||state.store.manual[id]===undefined)))return;
-        const value=reset?null:{done:bucket(it)!=='entregadas',t:Date.now()};
+        if(it.mod==='feedback'&&!showFeedbackChoice(it)){render();return;}
+        const value=reset?null:it.mod==='feedback'?
+          {participation,done:participation==='completed',t:Date.now()}:{done:bucket(it)!=='entregadas',t:Date.now()};
         await append([{type:'manual',key:id,value}]);
         if(reset)delete state.store.manual[id];
         else state.store.manual[id]=value.done;
         render();
+        if(it.mod==='feedback'){
+          const select=nodes.get(id)?.querySelector('[data-feedback-choice]');
+          (select||ui('[data-tab][aria-selected="true"]:not([hidden])')||listBody.querySelector('.ugr-list')).focus();
+        }
       });
-      if(reset)load();
-    }catch{fail('No se pudo guardar el estado manual.');}
+      if(reset&&!id.startsWith('feedback:'))load();
+    }catch{
+      const select=nodes.get(id)?.querySelector('[data-feedback-choice]');
+      if(select)select.value=state.store.manual[id]===undefined?'':state.store.manual[id]?'completed':'not_completed';
+      fail('No se pudo guardar el estado manual.');
+    }
   }
   panel.addEventListener('click',e=>{
     if(e.target.closest('[data-personalize]')){
@@ -1133,10 +1191,16 @@
   panel.addEventListener('dblclick',e=>{
     if(!e.target.closest('.ugr-source') || stopped)return;
     const id=e.target.closest('li')?.dataset.id;
-    if(id && !id.startsWith('forum:') && state.store.manual[id]!==undefined)changeManual(id,true);
+    if(id && !/^(forum|feedback):/.test(id) && state.store.manual[id]!==undefined)changeManual(id,true);
   });
   panel.addEventListener('change',e=>{
     const input=e.target;
+    if(input.matches('[data-feedback-choice]')){
+      const id=input.closest('li')?.dataset.id;
+      if(!stopped&&id?.startsWith('feedback:')&&['','completed','not_completed'].includes(input.value))
+        changeManual(id,input.value==='',input.value);
+      return;
+    }
     if(input===appearanceSelect){
       updatePresentation({appearance:input.value});
       return;

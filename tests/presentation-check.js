@@ -50,7 +50,7 @@ async page=>{
     };
     const active=months[day.getFullYear()+'-'+(day.getMonth()+1)].items;
     active.push(make(1,'assign',1,100000),make(4,'assign',2,-100000),make(5,'assign',2,100005),
-      make(6,'quiz',1,100006),make(7,'forum',2,100007),make(8,'forum',1,-100001));
+      make(6,'quiz',1,100006),make(7,'forum',2,72000),make(8,'forum',1,-100001));
     months['2020-1']={t:now-1000,items:Array.from({length:240},(_,i)=>make(1000+i,'assign',i%2+1,36000+i))};
     localStorage.fixture=JSON.stringify({
       [prefix+'cache']:{schema:2,updated:now-1000,months,auto},
@@ -70,7 +70,10 @@ async page=>{
   check(await panel.locator('[data-toggle-status]').count()===1&&await prefs.locator('[data-toggle-status]').count()===1&&
     await panel.getByRole('button',{name:'Ocultar estado',exact:true}).count()===0,'Visibilidad solo dentro de Personalizar');
   check(await status.isHidden() && await setting('position').inputValue()==='hidden','Estado oculto sin preferencia guardada');
-  check(await rows.count()===241,'Sin límite predeterminado');
+  check(await rows.count()===242,'Sin límite predeterminado');
+  const futureForum=panel.locator('[data-id="forum:7"]');
+  check(await futureForum.evaluate(row=>row.classList.contains('ugr-soon'))&&
+    (await futureForum.locator('.ugr-source').textContent())==='Requiere confirmación manual','Foro próximo, ámbar y manual');
   const original=await store(), before=await metric(), initialRequests=academicRequests;
   await open();
   check(await setting('personalize').getAttribute('aria-expanded')==='true','Control de personalización accesible');
@@ -90,11 +93,11 @@ async page=>{
   await setting('toggle-status').press('Enter');
   check(await status.isVisible()&&await setting('position').inputValue()==='bottom','Mostrar restaura Abajo');
   await setting('mode').selectOption('custom');
-  check(await panel.locator('.ugr-tabs').isHidden() && await rows.count()===241,'Solo Próximas');
+  check(await panel.locator('.ugr-tabs').isHidden() && await rows.count()===242,'Solo Próximas');
   await select('atrasadas');
   check((await ids()).join()==='assign:4','Solo Atrasadas');
   await select('proximas','atrasadas');
-  check(await rows.count()===242 && (await ids())[0]==='assign:4','Próximas con Atrasadas ordenadas antes de limitar');
+  check(await rows.count()===243 && (await ids())[0]==='assign:4','Próximas con Atrasadas ordenadas antes de limitar');
   check(await setting('active-filters').textContent()==='Próximas · Atrasadas','Categorías activas visibles fuera de la configuración');
   await select('entregadas');
   check((await ids()).join()==='assign:1,forum:8','Solo Entregadas, incluido un foro manual');
@@ -116,7 +119,7 @@ async page=>{
   await select();
   check(await rows.count()===0 && (await setting('empty-message').textContent()).includes('al menos una categoría'),'Selección vacía explícita');
   await panel.locator('.ugr-empty [data-reset-categories]').click();
-  check(await rows.count()===241,'Restablecer desde el estado vacío');
+  check(await rows.count()===242,'Restablecer desde el estado vacío');
   await setting('select-all').click();
   const all=await ids();
   check(all.length===246 && new Set(all).size===246,'Seleccionar todas conserva actividades únicas');

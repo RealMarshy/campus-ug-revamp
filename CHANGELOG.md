@@ -2,6 +2,11 @@
 
 Este historial resume las versiones de Revamp, derivado de [Panel de Tareas UG](https://github.com/danieIabel/campus-ug).
 
+## 2.3.0
+
+- Descubre encuestas a partir de eventos de apertura y cierre. Comprueba su estado en la vista principal y conserva las confirmaciones y marcas manuales.
+- Clasifica los foros por confirmar según su vencimiento y los conserva también en Pendientes.
+
 ## 2.2.0
 
 - La advertencia de actividades cuenta las recuperaciones automáticas que fallaron y permanece hasta que esas actividades se comprueben con éxito. Los fallos iniciales y aplazados se muestran en Diagnóstico.
