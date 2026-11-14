@@ -1,5 +1,11 @@
 # Verificaciones de Campus UG Revamp
 
+## Publicación de 2.5.0
+
+El usuario confirmó en Moodle UG la clasificación de encuestas y cuestionarios cerrados, las tres opciones de declaración manual y las tres variantes de disponibilidad de tareas. La auditoría final volvió a ejecutar 43 pruebas Node y 832 comprobaciones en 24 suites de Chrome. Todas pasaron, sin omisiones. El ZIP final cargó como extensión Manifest V3 en Chrome 157 aislado. La prueba confirmó que el cuestionario cerrado aparece en Pendientes y Sin verificar y que declarar o retirar la decisión no añade solicitudes.
+
+El ZIP final contiene ocho archivos públicos. Solo su README difiere del paquete de desarrollo validado. Conserva el aviso original de la licencia MIT y la ilustración pública CC0 1.0. Pesa 74.671 bytes y su SHA-256 es `B94A51488459075BA72B3DEEC32FF8C1555341091D370EABB735D88D59BC3D54`. La instalación personal conserva la versión 2.5.0, su ruta, ID, almacenamiento e ilustración privada.
+
 ## Actividades cerradas pendientes de confirmación · 2.5.0 desarrollo
 
 En 2.4.1, el estado base de una encuesta o un cuestionario cerrado con participación desconocida era Sin verificar. Pendientes ya incluía Próximas y Atrasadas. En 2.5.0 se conserva ese estado base y se añade una condición de pertenencia a Pendientes. Los contadores y ambas vistas usan el mismo criterio después de aplicar los filtros de curso, tipo y fecha. La Lista simple deduplica por módulo e identificador de actividad.

@@ -1,16 +1,16 @@
-# Campus UG Revamp 2.5.0 (desarrollo)
+# Campus UG Revamp 2.5.0 — The Daniel Update
 
 Extensión comunitaria e independiente para Chrome que reúne las actividades del Área personal de Moodle de la Universidad de Guayaquil. Usa Manifest V3. Este proyecto no es oficial ni está afiliado a la Universidad de Guayaquil o a Moodle.
 
-**Descarga oficial** · [ZIP de Campus UG Revamp 2.4.0](https://github.com/RealMarshy/campus-ug-revamp/releases/download/v2.4.0/campus-ug-revamp-2.4.0.zip).
+**Descarga oficial** · [ZIP de Campus UG Revamp 2.5.0](https://github.com/RealMarshy/campus-ug-revamp/releases/download/v2.5.0/campus-ug-revamp-2.5.0.zip).
 
 Los accesos rápidos **Categorías** y **Tipos de actividad** permiten elegir qué pestañas se muestran y filtrar por Tareas, Cuestionarios, Foros o Encuestas. Puedes seleccionar o deseleccionar todas las opciones y cerrar el menú desde el mismo botón o con **Escape**. En **Personalizar** puedes cambiar de vista y restaurar los valores predeterminados. Los tipos se combinan con el curso en ambas vistas. **Lista simple (Antiguo)** reúne las categorías seleccionadas sin duplicar actividades y recuerda su selección por separado.
 
 **Fecha** filtra por vencimiento con un intervalo manual o con semanas y meses relativos a hoy. Los días inicial y final se incluyen completos. Las actividades sin vencimiento solo aparecen cuando Fecha está desactivado. Pulsa de nuevo el rango rápido activo para quitar el filtro Fecha y conservar los demás filtros. Puedes sustituir un rango rápido por uno manual con Aplicar fechas.
 
-Revamp distingue las tareas disponibles para agregar una entrega de las bloqueadas por falta de grupo. Una evaluación explícita puede mostrarse como **Calificada sin envío en Moodle**. En cuestionarios, reconoce los resultados con tarjetas de intentos de Moove y muestra una apertura futura verificada en **Próximas** y **Pendientes**.
+Revamp distingue las tareas que permiten agregar una entrega, las bloqueadas por falta de grupo y las que no ofrecen un control visible para entregar. Una evaluación explícita puede mostrarse como **Calificada sin envío en Moodle**. En cuestionarios, reconoce las tarjetas de intentos de Moove y muestra una apertura futura verificada en **Próximas** y **Pendientes**.
 
-**2.3.0.** Incorpora encuestas de Feedback que aparecen en el calendario con eventos válidos. La apertura y el cierre se conservan por separado. En encuestas con cierre verificado, puedes usar la confirmación manual cuando Moodle no confirme la participación.
+Una encuesta o un cuestionario con cierre confirmado y participación desconocida aparece en **Pendientes** y **Sin verificar**. La incertidumbre por sí sola no lo convierte en una actividad atrasada. Si combinas esas dos categorías en la Lista simple, cada actividad aparece una sola vez.
 
 Usa **Participación** en foros y encuestas elegibles, o **Realización** en cuestionarios cerrados sin historial. En tareas y otros cuestionarios, **✓** sigue disponible para declarar que completaste la actividad cuando Moodle no ha confirmado su realización. El selector permite cambiar o retirar la declaración después. **Sin declarar** recupera el último estado conocido sin consultar Moodle. Una finalización o evaluación verificada conserva prioridad.
 
@@ -41,7 +41,7 @@ Para actualizar una instalación existente, coloca los archivos nuevos en la mis
 | Próximas | Actividades pendientes con fecha de entrega futura. |
 | Atrasadas | Actividades pendientes cuyo plazo ya pasó. |
 | Entregadas | Actividades con entrega reconocida por Moodle o marcada manualmente. |
-| Pendientes | Actividades con entrega pendiente y foros por confirmar manualmente. |
+| Pendientes | Actividades por realizar, foros por confirmar y encuestas o cuestionarios cerrados con participación sin confirmar. |
 | Sin verificar | Actividades cuyo estado sigue sin confirmarse. |
 
 **Actualizar** vuelve a consultar el mes actual y los dos siguientes. Aprovecha los datos vigentes y verifica las actividades según su política de revisión. **Reverificar todo** amplía la consulta a seis meses y ofrece una segunda pasada para ciertos errores transitorios. El panel muestra un resumen de las consultas y los fallos.

@@ -2,9 +2,11 @@
 
 Este historial resume las versiones de Revamp, derivado de [Panel de Tareas UG](https://github.com/danieIabel/campus-ug).
 
-## 2.5.0 (desarrollo)
+## 2.5.0 — The Daniel Update
 
 - Las encuestas y los cuestionarios con cierre confirmado y participación desconocida aparecen en Pendientes y Sin verificar. La lista combinada muestra una sola fila por actividad.
+- Integra las declaraciones manuales unificadas de la candidata 2.4.1 y conserva el historial, las calificaciones y la prioridad de la evidencia de Moodle.
+- Reconoce el cierre de cuestionarios Moove sin historial visible y distingue las tareas bloqueadas por grupo, las disponibles y las que carecen de un control visible de entrega.
 
 ## 2.4.1 (candidata)
 
