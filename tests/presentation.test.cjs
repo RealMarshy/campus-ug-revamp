@@ -97,3 +97,15 @@ test('Unión por módulo y CMID, con foros en Pendientes y en su categoría de v
   assert.deepEqual(due(['atrasadas','entregadas']),[8,2]);
   assert.deepEqual(due([]),[]);
 });
+
+test('La confirmación pendiente se superpone sin duplicados y respeta filtros',()=>{
+  const quiz={it:{mod:'quiz',cmid:'1',due:10},b:'desconocidas',awaitingConfirmation:true};
+  const feedback={it:{mod:'feedback',cmid:'1',due:20},b:'desconocidas',awaitingConfirmation:true};
+  const readError={it:{mod:'quiz',cmid:'2',due:15},b:'desconocidas'};
+  const rows=[quiz,feedback,readError];
+  assert.deepEqual(presentationList(rows,['pendientes']),[quiz.it,feedback.it]);
+  assert.deepEqual(presentationList(rows,['desconocidas','pendientes']),[quiz.it,readError.it,feedback.it]);
+  assert.deepEqual(presentationList(rows,['atrasadas']),[]);
+  const filtered=filterPresentationRows(rows,['quiz'],{start:10,end:20});
+  assert.deepEqual(presentationList(filtered,['pendientes','desconocidas']),[quiz.it,readError.it]);
+});

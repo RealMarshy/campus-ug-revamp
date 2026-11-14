@@ -1,5 +1,61 @@
 # Verificaciones de Campus UG Revamp
 
+## Actividades cerradas pendientes de confirmación · 2.5.0 desarrollo
+
+En 2.4.1, el estado base de una encuesta o un cuestionario cerrado con participación desconocida era Sin verificar. Pendientes ya incluía Próximas y Atrasadas. En 2.5.0 se conserva ese estado base y se añade una condición de pertenencia a Pendientes. Los contadores y ambas vistas usan el mismo criterio después de aplicar los filtros de curso, tipo y fecha. La Lista simple deduplica por módulo e identificador de actividad.
+
+La condición se calcula en memoria con los estados verificados. Para Feedback exige estado cerrado y que el sello de verificación coincida con el cierre vigente. Para cuestionarios exige `quiz_closed_unknown` y descarta fechas explícitas de cierre futuras, contradictorias o actualizadas después de la verificación. La actividad debe carecer de una decisión manual, finalización verificada y fallo de lectura activo. Los foros y las tareas mantienen sus reglas. No se añadieron lecturas de Moodle, temporizadores ni campos persistentes.
+
+Con una declaración afirmativa la actividad pasa a Entregadas. La negativa mantiene Pendientes y pasa a Atrasadas cuando corresponde por vencimiento. Retirar la declaración vuelve a mostrar el estado almacenado y recupera la doble pertenencia si sigue siendo aplicable. Chrome 157 confirmó la persistencia de una declaración tras reiniciar un perfil aislado con el ZIP extraído. Seleccionar y retirar la declaración no generó solicitudes adicionales a actividades ni al calendario.
+
+Pasaron 43 pruebas Node y 832 comprobaciones en las 24 suites conjuntas de Chrome, sin fallos ni omisiones. Cuestionarios aprobó 121 comprobaciones y Feedback 73. La copia y el ZIP de desarrollo son independientes de 2.4.1. El ZIP pesa 74.633 bytes y su SHA-256 es `40D5701B4E597503D924C1FE6E1A3F4CCF6B5AFE8D9BD3FC9453102FCD48CD7F`.
+
+En la integración posterior se repitieron las 43 pruebas Node y las 832 comprobaciones de las 24 suites de Chrome, con cero fallos y omisiones. La restauración de los tres archivos de la extensión personal se comprobó en una réplica con hashes idénticos al respaldo 2.4.1. La integración conserva la carpeta y el registro de Chrome y usa el mismo esquema de almacenamiento. La prueba diaria puede hacerse recargando la extensión existente y el Área personal. El ZIP público reconstruido coincide byte a byte con el que se probó en Chrome y contiene los ocho archivos públicos, incluida la licencia MIT y la ilustración CC0 1.0.
+
+Para una comprobación en Moodle UG, carga esta copia descomprimida en un perfil aparte de Chrome. Abre el Área personal con tu sesión en ese perfil y busca una encuesta cerrada sin confirmación y un cuestionario con `quiz_closed_unknown`. Con Sin declarar, ambos deben aparecer en Pendientes y Sin verificar, sin entrar en Atrasadas. Selecciona esas dos categorías en Lista simple y comprueba una sola fila por actividad. Prueba cada declaración y su retirada para comprobar que los contadores se actualizan.
+
+## Variante Moove de tarea sin opción visible de entrega · 2.4.1 candidata
+
+En el fixture anterior, «Todavía no se han realizado envíos» pasaba ambas comprobaciones. Al sustituir únicamente ese texto por «No se ha enviado nada en esta tarea», Chrome reprodujo el diagnóstico real: `state: "no_submission"`, `groupNotice: "missing"` y `result: "none"`. La primera expresión reconocía la frase y la segunda la omitía. La segunda condición se ejecuta antes de guardar y presentar la disponibilidad.
+
+El nuevo fixture sintético incluye una tabla Moove con grupo, intento, estado de envío, calificación, tiempo restante y comentarios, además de navegación. La frase se reconoce en las dos comprobaciones. Un nombre de grupo dentro de su fila no se trata como aviso de bloqueo. Los controles de comentarios y navegación no son controles de entrega. Se conserva la respuesta conservadora ante avisos ambiguos, un formulario de entrega de otro módulo o una tabla ocupada. El ZIP extraído mostró la etiqueta en Chrome 157 con un solo GET por verificación.
+
+Pasaron 42 pruebas Node y 824 comprobaciones en 24 suites de Chrome, sin fallos ni omisiones. Evidencias pasó 80 comprobaciones, incluidas la persistencia, el sello exacto y el aislamiento tras reverificar la misma actividad en otra cuenta sintética. Se sincronizaron la instalación personal, el borrador local y el ZIP 2.4.1 de 74.282 bytes. SHA-256 `B55E681CF03578E820A701EB197236C2CD3892D63EEFE822FAA2ECCE5176A7FC`. En Moodle UG queda por recargar la extensión y reverificar la fila para comprobar `lastRun.assignGroup.result: "no_submission_option"`.
+
+## Tarea sin opción visible de entrega · 2.4.1 candidata
+
+El estado anterior de disponibilidad omitía el campo tanto cuando faltaba un control como cuando la vista no aportaba suficiente evidencia. Revamp solo añade «Sin opción para entregar» tras leer la vista principal y confirmar la identidad del módulo, una única fila visible de ausencia de envío y la ausencia de controles o avisos que hagan ambigua esa lectura. Reutiliza el campo de disponibilidad existente. Los estados anteriores conservan su etiqueta hasta una nueva comprobación. Las entregas, las evaluaciones, el bloqueo por grupo y los errores mantienen sus etiquetas.
+
+El fixture sintético de apertura futura conserva el vencimiento y el formato exacto del sello de verificación. Las fechas del encabezado no se usan para inferir cierre ni bloqueo. La comprobación usa el mismo GET de la tarea. El ZIP extraído en Chrome 157 confirmó la etiqueta y el indicador `lastRun.assignGroup.result: "no_submission_option"`.
+
+Pasaron 42 pruebas Node y 815 comprobaciones en las 24 suites de Chrome, sin fallos ni omisiones. Se sincronizaron la instalación personal y el borrador con el ZIP candidato de 74.123 bytes. SHA-256 `5C46992C6389AFB371E926460051F8EA82E7E2DB3E63B7983197A95DF5588B30`. Para verificar en Moodle UG, recarga la extensión existente, recarga el Área personal y pulsa ⟳ en la fila correspondiente.
+
+## Declaraciones manuales unificadas · 2.4.1 candidata
+
+Antes del cambio, tareas, cuestionarios y foros usaban una marca booleana guardada en el historial por cuenta y actividad. Las encuestas ya distinguían una declaración explícita de una marca antigua. Los foros conservaban confirmaciones históricas y no se consultaban automáticamente. La clasificación y los contadores se derivaban del estado efectivo de cada fila. En tareas y cuestionarios, el doble clic retiraba la marca y podía iniciar una sincronización.
+
+El selector reutiliza ese historial, Web Locks, el renderizado y los filtros. Las decisiones nuevas guardan `yes` o `no` en el registro manual existente. Sin declarar guarda la retirada y recupera la evidencia almacenada. Los valores de encuestas anteriores se interpretan al leerlos y una marca negativa antigua conserva su valor booleano e indicación de procedencia. No se realiza una migración destructiva.
+
+Se muestra el selector directamente en cuestionarios con cierre reconocido y participación desconocida, encuestas con cierre confirmado y foros por confirmar. En tareas y otros cuestionarios que admiten marcado manual, ✓ declara la realización y deja disponible el selector para cambiar o retirar la decisión. El vencimiento por sí solo no se interpreta como cierre efectivo. Las finalizaciones verificadas y evaluaciones conservan su prioridad. Si existe una declaración negativa en conflicto con una finalización oficial, la fila conserva la evidencia y muestra la contradicción. Las fechas y notas provienen de la evidencia original. No se añaden solicitudes de red ni temporizadores.
+
+La validación real anterior confirmó `quiz_closed_unknown` con cero fallos. La interfaz de participación de esta candidata aún requiere verificación en Moodle UG.
+
+La batería conjunta aprobó 42 pruebas Node y 812 comprobaciones en 24 suites de Chrome, sin fallos ni omisiones. Se probaron las tres decisiones, su clasificación, el aislamiento por cuenta, las marcas anteriores, ambas vistas, el alcance de los filtros y la prioridad de la evidencia oficial. En Chrome se comprobó foco, nombre accesible y geometría a 320 y 360 px con Claro, Oscuro y Automático con señales de Dark Reader simuladas. La primera corrida de Recuperación reveló una expectativa anterior que excluía una entrega oficial por su marca negativa heredada. Se actualizó el fixture para exigir que conserve la entrega y se repitió la batería completa.
+
+El ZIP extraído funcionó en Chrome aislado. Tras cerrar y reabrir el mismo perfil desechable, se conservó la declaración. Se probaron las tres decisiones sin lecturas nuevas. El ZIP candidato de ocho archivos públicos pesa **73.880 bytes**. SHA-256 `12E80265FEC57F64F5702070EC2E215F46EF8331AA2307A720E372020C26B124`.
+
+## Cuestionario cerrado sin historial visible · 2.4.1 candidata
+
+El reporte de Moodle UG describe una vista principal de Moove con las fechas «Abrió» y «Cerró» y un formulario GET para volver al curso. El HTML autenticado no se incorporó al proyecto. Con un fixture sintético equivalente, 2.4.0 devolvió `SELECTOR_MISSING`. Su ruta de reconocimiento requería un aviso conocido, una declaración explícita de ausencia de intentos o un inicio válido para llegar al detector de fechas. El formulario de regreso no cumplía ninguna de esas condiciones. Además, el lector de fechas admitía las etiquetas de una ventana futura.
+
+El detector reutiliza la comprobación de identidad y del encabezado Moove. Requiere una apertura anterior al cierre, un cierre ya alcanzado y concordancia con el minuto del calendario si hay un evento de cierre confirmado. La zona horaria es Ecuador continental. La vista debe mostrar el contexto del cuestionario y el formulario de regreso al curso sin señales de intentos, de inicio o de una restricción distinta. Si las señales contradicen el cierre, se mantiene el resultado conservador anterior.
+
+El estado `quiz_closed_unknown` permanece en **Sin verificar** con la etiqueta «Cuestionario cerrado · Participación sin confirmar». El cierre no se usa como prueba de finalización ni para archivar la actividad. Una finalización histórica y su calificación conservan prioridad. La verificación individual usa el mismo GET de la vista del cuestionario.
+
+Pasaron 41 pruebas Node y 801 comprobaciones en 24 suites conjuntas de Chrome, sin fallos ni omisiones. La suite de cuestionarios aprobó 108 comprobaciones, incluida la regresión de `quiz-opening-ug-header-3`. El ZIP extraído cargó como Manifest V3 en Chrome 157 y confirmó la etiqueta y el diagnóstico con una lectura por verificación. El paquete candidato pesa **73.389 bytes**. SHA-256 `117A7905B22670D198737450C63003432ABFCF464BF2EF450E60DB9AAEB91D5F`. La Release estable v2.4.0 conserva su propio ZIP.
+
+Para comprobarlo en Moodle UG, recarga la extensión existente desde `chrome://extensions`, recarga el Área personal y pulsa ⟳ en esa fila. En Diagnóstico, comprueba `version: "2.4.1"`, `lastRun.mode: "one"`, `checked: 1`, `recognizedAbsences.quiz_closed_unknown: 1` y `activityErrors: 0`. La actividad no debe tener un fallo activo. Si había una entrega confirmada, comprueba que siga en Entregadas con su nota. Comparte únicamente esos indicadores sanitizados si el resultado difiere.
+
 ## Validación real previa a la publicación de 2.4.0
 
 El usuario confirmó en Moodle UG las etiquetas «Sin entrega · Disponible para agregar entrega» y «Sin entrega · Bloqueada por grupo». También confirmó «No iniciado · Disponible para realizar» en un cuestionario disponible y el reconocimiento de dos cuestionarios con apertura futura mediante `quiz-opening-ug-header-3`. La batería automatizada de esta revisión aprobó 41 pruebas Node y 783 comprobaciones en 24 suites de Chrome, sin fallos ni omisiones.

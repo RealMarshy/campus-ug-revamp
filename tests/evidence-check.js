@@ -28,6 +28,15 @@ async (page,baseline=false)=>{
   const noSubmission='<div class="submissionstatustable"><table>'+
     '<tr><th>Estado de la entrega</th><td class="submissionstatus">Todavía no se han realizado envíos</td></tr>'+
     '<tr><th>Estado de la calificación</th><td>Sin calificar</td></tr></table></div>';
+  const mooveStatus=noSubmission.replace('<table>','<div class="submissionsummarytable"><table class="generaltable">'+
+    '<tr><th>Grupo</th><td>Grupo ficticio</td></tr><tr><th>Número del intento</th><td>1</td></tr>')
+    .replace('Todavía no se han realizado envíos','No se ha enviado nada en esta tarea')
+    .replace('</table>','<tr><th>Tiempo restante</th><td>2 días</td></tr>'+
+      '<tr><th>Comentarios de la entrega</th><td><button type="button">Comentarios (0)</button>'+
+      '<form action="/comment/comment_ajax.php" method="post"><input name="action" value="add">'+
+      '<textarea name="content"></textarea><button type="submit">Guardar comentario</button></form></td></tr></table></div>');
+  const returnToCourse='<form method="get" action="/course/view.php"><input type="hidden" name="id" value="7">'+
+    '<button type="submit">Volver al curso</button></form>';
   const addSubmission='<form action="/mod/assign/view.php" method="get"><input type="hidden" name="id" value="3">'+
     '<input type="hidden" name="action" value="editsubmission"><button type="submit">Agregar entrega</button></form>';
   const groupNotice='<div class="alert alert-danger" role="alert">No perteneces a ningún grupo.</div>';
@@ -65,7 +74,7 @@ async (page,baseline=false)=>{
     const mod=id<=titles.length?'assign':'quiz';
     const grade=fixtureUser(p)===99&&id===1?'6 / 10':grades[id-1];
     if(id===3&&evaluationOffline)return route.abort('failed');
-    const html=id===3&&assignBody!==null?assignBody:id===3&&evaluation!==null?noSubmission+(fixtureUser(p)===99?'':evaluation):mod==='quiz'?quizzes[id-titles.length-1]:
+    const html=id===3&&assignBody!==null?fixtureUser(p)===99?noSubmission+addSubmission:assignBody:id===3&&evaluation!==null?noSubmission+(fixtureUser(p)===99?'':evaluation):mod==='quiz'?quizzes[id-titles.length-1]:
       '<div class="submissionstatus'+(id===3?'new':'submitted')+'"></div>'+
       (grade?'<div class="feedbacktable"><table><tr><td>Calificación</td><td>'+grade+'</td></tr></table></div>':'');
     return route.fulfill({body:'<body id="page-mod-'+mod+'-view" class="cmid-'+id+'">'+identity(p)+'<main>'+html+'</main></body>'});
@@ -129,21 +138,21 @@ async (page,baseline=false)=>{
   grades[0]='<script type="text/plain">10</script>';
   await reread(1);
   check(await grade(1).count()===0&&!JSON.stringify(await diag()).includes('8 / 10'),'Una nota retirada desaparece aunque quede texto invisible');
-  const assignmentAvailability=await page.evaluate(({origin,groupBlocked,groupNotice,noSubmission})=>{
+  const assignmentAvailability=await page.evaluate(({origin,groupBlocked,groupNotice,noSubmission,mooveStatus,returnToCourse})=>{
     const read=(html,cmid='3')=>UGCore.recognize(new DOMParser().parseFromString(
       '<body id="page-mod-assign-view" class="cmid-3"><script>M.cfg={"userid":42};</script><main>'+html+'</main></body>',
-      'text/html'),'assign','42',origin,cmid);
+      'text/html'),'assign','42',origin,cmid,null,true);
     const status='<tr><th>Submission status</th><td>Nothing has been submitted for this assignment</td></tr>';
     const table=(group='')=>'<div class="submissionstatustable"><table>'+group+status+'</table></div>';
     const blocked=table('<tr><th>Group</th><td><div class="alert alert-danger">Not a member of any group</div></td></tr>');
     const add='<form action="/mod/assign/view.php" method="get"><input type="hidden" name="id" value="3">'+
       '<input type="hidden" name="action" value="editsubmission"><button type="submit">Add submission</button></form>';
     const cases=[
-      [blocked,'group_blocked'],[table()+add,'add_submission'],[table(),undefined],
+      [blocked,'group_blocked'],[table()+add,'add_submission'],[table(),'no_submission_option'],
       [table()+add.replace('type="submit"','type="submit" disabled'),undefined],
       [table()+add.replace('value="3"','value="4"'),undefined],
       [blocked+add,'group_blocked'],
-      [table()+'<div class="intro">'+add+'</div>',undefined],
+      [table()+'<div class="intro">'+add+'</div>','no_submission_option'],
       [groupBlocked,'group_blocked'],
       [noSubmission.replace('</table></div>','</table><div class="alert alert-danger" role="alert">'+
         'Esta tarea requiere entrega por grupos. Usted no es miempro de ningún grupo, así que no puede realizar entregas. '+
@@ -152,13 +161,23 @@ async (page,baseline=false)=>{
         'Esta tarea requiere envío en grupos. Usted no es miembro de ningún grupo, por lo que no puede crear un envío '+
         'Por favor, póngase en contacto con su profesor para ser añadido a un grupo.</div></div>'),'group_blocked'],
       [noSubmission+groupNotice,undefined],
-      [groupBlocked.replace('role="alert"','role="alert" hidden'),undefined],
+      [groupBlocked.replace('role="alert"','role="alert" hidden'),'no_submission_option'],
       [groupBlocked.replace('No perteneces a ningún grupo.','Se requiere un grupo.'),undefined],
-      [groupBlocked,undefined,'4']
+      [groupBlocked,undefined,'4'],
+      [noSubmission.replace('Todavía no se han realizado envíos','No se ha enviado nada en esta tarea'),'no_submission_option'],
+      [mooveStatus,'no_submission_option'],
+      [mooveStatus+returnToCourse,'no_submission_option'],
+      [mooveStatus.replace('<td>Grupo ficticio','<td class="teamname">Grupo ficticio')+returnToCourse,'no_submission_option'],
+      [mooveStatus+add,'add_submission'],
+      [mooveStatus+add.replace('value="3"','value="4"'),undefined],
+      [mooveStatus.replace('<table class="generaltable">','<table class="generaltable" aria-busy="true">'),undefined]
     ];
-    return cases.map(([html,expected,cmid])=>{const value=read(html,cmid);return value.done===false&&value.assignAvailability===expected;});
-  },{origin,groupBlocked,groupNotice,noSubmission});
-  for(const [i,ok] of assignmentAvailability.entries())check(ok,'Disponibilidad de tareas '+(i+1));
+    return cases.map(([html,expected,cmid])=>{
+      const value=read(html,cmid);
+      return {ok:value.done===false&&value.assignAvailability===expected,diagnostic:value.assignGroup};
+    });
+  },{origin,groupBlocked,groupNotice,noSubmission,mooveStatus,returnToCourse});
+  for(const [i,{ok,diagnostic}] of assignmentAvailability.entries())check(ok,'Disponibilidad de tareas '+(i+1)+' '+JSON.stringify(diagnostic));
   const gradeCases={
     zero:{body:feedback('0,00/10,00'),grade:'0,00/10,00'},
     maxOnly:{body:feedback('10',''),error:'STATE_UNKNOWN'},
@@ -180,7 +199,7 @@ async (page,baseline=false)=>{
   }),{gradeCases,origin,noSubmission});
   for(const [name,ok] of parsed)check(ok,'Evidencia estructural: '+name);
 
-  await row(3).locator('.ugr-source').dblclick();
+  await row(3).locator('[data-manual-choice]').selectOption('');
   await tab('Próximas');
   await row(3).waitFor();
   evaluation=feedback('9,00 / 10,00');
@@ -201,11 +220,7 @@ async (page,baseline=false)=>{
   await tab('Entregadas');
   check((await grade(3).textContent()).startsWith('Última calificación confirmada')&&(await grade(3).textContent()).endsWith('9,00 / 10,00'),'El TTL conserva y etiqueta la nota histórica');
   await page.evaluate(now=>{Date.now=now;},realClock);
-  await row(3).locator('[data-toggle]').click();await tab('Próximas');
-  check(await row(3).locator('.ugr-source').textContent()==='Estado manual'&&await grade(3).count()===1,'Marca negativa prevalece y la nota sigue visible');
-  await row(3).locator('[data-toggle]').click();await tab('Entregadas');
-  check(await row(3).locator('.ugr-source').textContent()==='Estado manual','Marca positiva prevalece');
-  await row(3).locator('.ugr-source').dblclick();
+  check(await row(3).locator('[data-toggle], [data-manual-choice]').count()===0&&await grade(3).count()===1,'La evaluación verificada conserva su nota y evita contradicciones manuales');
   await page.waitForFunction(()=>[...document.querySelectorAll('.ugr-source')].some(el=>el.textContent==='Calificada sin envío en Moodle'));
   await idle();
   const evaluationAccount=await context.newPage();
@@ -222,10 +237,44 @@ async (page,baseline=false)=>{
   evaluation='';
   await reread(3);await tab('Próximas');
   check(await row(3).count()===1&&await grade(3).count()===0,'Una ausencia válida de evaluación retira la nota');
+  const label=()=>row(3).locator('.ugr-source').textContent();
+  const due=await row(3).locator('.ugr-when > div').first().textContent();
+  assignBody='<header id="page-header"><div data-region="activity-dates">'+
+    '<div><span class="date-item-label">Apertura:</span> 12/02/2099 10:00</div>'+
+    '<div><span class="date-item-label">Cierre:</span> 13/02/2099 10:00</div></div></header>'+mooveStatus+returnToCourse;
+  const beforeNoOption=calls.length;
+  await reread(3);
+  const verifiedAt=await page.evaluate(()=>{
+    const stamp=JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':42:verification'].records['assign:3'];
+    return new Date(stamp.t).toLocaleString('es-EC');
+  });
+  const noOptionLabel='No entregada según Moodle · Sin opción para entregar · '+verifiedAt;
+  check(await label()===noOptionLabel&&calls.length===beforeNoOption+1,'Apertura futura sin botón y sello exacto en una sola lectura');
+  await page.reload();await idle();await tab('Próximas');
+  check(await label()===noOptionLabel&&await row(3).locator('.ugr-when > div').first().textContent()===due,
+    'La etiqueta, el sello y el vencimiento se conservan al recargar');
+  const availabilityAccount=await context.newPage();
+  other.add(availabilityAccount);await availabilityAccount.goto(origin);await idle(availabilityAccount);
+  await tab('Próximas',availabilityAccount);
+  await row(3,availabilityAccount).locator('[data-reverify]').click();await idle(availabilityAccount);
+  check((await row(3,availabilityAccount).locator('.ugr-source').textContent()).startsWith('Sin entrega · Disponible para agregar entrega')&&
+    await label()===noOptionLabel,'La disponibilidad de la misma tarea se aísla por cuenta');
+  await availabilityAccount.close();
+  const futureTask=assignBody;
+  assignBody=futureTask+addSubmission;
+  await reread(3);
+  check((await label()).startsWith('Sin entrega · Disponible para agregar entrega'),
+    'Un control válido prevalece aunque la apertura del encabezado sea futura');
+  assignBody=futureTask;
+  await reread(3);
+  evaluationOffline=true;
+  await reread(3);await tab('Sin verificar');
+  check(!(await label()).includes('Sin opción para entregar')&&(await diag()).activeFailures.some(f=>f.code==='NETWORK'),
+    'Un error de lectura conserva el tratamiento conservador');
+  evaluationOffline=false;
   assignBody=groupBlocked+addSubmission;
   const beforeBlocked=calls.length;
-  await reread(3);
-  const label=()=>row(3).locator('.ugr-source').textContent();
+  await reread(3);await tab('Próximas');
   check((await label()).startsWith('Sin entrega · Bloqueada por grupo')&&calls.length===beforeBlocked+1,
     'El aviso oficial en español prevalece y llega a la etiqueta con una sola lectura');
   const blockedRun=(await diag()).lastRun;
@@ -240,6 +289,17 @@ async (page,baseline=false)=>{
   await reread(3);
   check((await label()).startsWith('Sin entrega · Disponible para agregar entrega'),
     'La lectura válida reemplaza el bloqueo por disponibilidad de la misma tarea');
+  const taskManual=row(3).locator('[data-manual-choice]');
+  check(await taskManual.count()===0&&await row(3).locator('[data-toggle]').count()===1,
+    'Una tarea que admite entrega conserva el acceso manual existente');
+  const manualReads=calls.length;
+  await row(3).locator('[data-toggle]').click();await tab('Entregadas');
+  check(await taskManual.getByRole('option',{name:'La entregué',exact:true}).count()===1,'Opciones apropiadas para tarea');
+  await taskManual.selectOption('no');await tab('Pendientes');
+  check((await label()).startsWith('Declarada no realizada'),'Declaración negativa de tarea');
+  await taskManual.selectOption('');
+  check((await label()).startsWith('Sin entrega · Disponible para agregar entrega')&&calls.length===manualReads,
+    'Retirar una declaración restaura disponibilidad sin lecturas nuevas');
   assignBody=groupBlocked+feedback('8 / 10');
   await reread(3);await tab('Entregadas');
   check((await label())==='Calificada sin envío en Moodle'&&await grade(3).textContent()==='Calificación: 8 / 10',

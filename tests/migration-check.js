@@ -28,7 +28,7 @@ async page=>{
   });
   await page.reload();await settled();
   const first=await diag();
-  check(first.version==='2.4.0','Versión');
+  check(first.version==='2.5.0','Versión');
   check(first.lastRun.checked===4&&first.lastRun.activityErrors===1,'Solo tareas y cuestionario en ejecución');
   check(first.effective.unknown===1&&first.effective.manualPending===4,'Quiz desconocido separado de foros por confirmar, incluido el desmarcado');
   check(first.activeFailures.length===1&&first.activeFailures[0].module==='quiz','Solo fallo activo del quiz');
@@ -46,15 +46,15 @@ async page=>{
   await page.getByRole('tab',{name:'Pendientes 2',exact:true}).click();
   check(await page.getByRole('link',{name:'Foro desmarcado histórico',exact:true}).count()===1,'Decisión falsa prevalece');
   const pendingRow=page.locator('.ugr-item').filter({hasText:'Foro histórico sin confirmar'});
-  await pendingRow.getByRole('button',{name:'Marcar como entregada'}).click();
+  await pendingRow.locator('[data-manual-choice]').selectOption('yes');
   await page.getByRole('tab',{name:'Entregadas 5',exact:true}).click();
   const forumRow=page.locator('.ugr-item').filter({hasText:'Foro histórico sin confirmar'});
   await forumRow.locator('.ugr-source').dblclick();
-  check(await forumRow.getByText('Estado manual').count()===1,'Doble clic no cambia el foro');
-  await forumRow.getByRole('button',{name:'Marcar como no entregada'}).click();
+  check(await forumRow.getByText('Declarada realizada · Confirmación manual').count()===1,'Doble clic no cambia el foro');
+  await forumRow.locator('[data-manual-choice]').selectOption('no');
   await page.getByRole('tab',{name:'Pendientes 2',exact:true}).click();
-  check(await pendingRow.getByText('Requiere confirmación manual').count()===1,'Desmarcar vuelve a Pendientes y pide confirmación');
-  check((await diag()).effective.manualPending===2&&await page.getByRole('tab',{name:'Atrasadas 2',exact:true}).count()===1,
+  check(await pendingRow.getByText('Declarada no realizada · Confirmación manual').count()===1,'La declaración negativa vuelve a Pendientes');
+  check((await diag()).effective.manualPending===1&&await page.getByRole('tab',{name:'Atrasadas 2',exact:true}).count()===1,
     'El foro desmarcado vuelve a contar como vencido y por confirmar');
   await page.reload();await settled();
   check(await page.getByLabel('Filtrar por curso').inputValue()==='7','Curso elegido restaurado al recargar');
@@ -74,9 +74,9 @@ async page=>{
   check((await page.evaluate(()=>fetch('/stats').then(r=>r.json()))).forums===0,'Sin descargas de foros tras recargar o revertir');
   await page.getByRole('tab',{name:/Pendientes/}).click();
   await page.evaluate(()=>{chrome.storage.local.set=async()=>{throw new Error('QUOTA_BYTES');};});
-  await pendingRow.getByRole('button',{name:'Marcar como entregada'}).click();
+  await pendingRow.locator('[data-manual-choice]').selectOption('yes');
   await page.waitForFunction(()=>document.querySelector('.ugr-error').textContent.includes('No se pudo guardar el estado manual'));
-  check(await pendingRow.getByText('Requiere confirmación manual').count()===1,'Un rechazo de escritura mantiene el estado efectivo anterior');
+  check(await pendingRow.getByText('Declarada no realizada · Confirmación manual').count()===1,'Un rechazo de escritura mantiene el estado efectivo anterior');
   check(JSON.stringify(await page.evaluate(()=>JSON.parse(localStorage.fixture)))===JSON.stringify(saved),'Rechazo de cuota no altera los datos');
   return {passed};
 }

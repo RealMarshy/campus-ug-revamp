@@ -116,7 +116,7 @@ async page=>{
   check(reads.slice().sort((a,b)=>a-b).join(',')==='1,1,2,4,5,18','Una lectura por módulo salvo un 503 recuperado, sin duplicar apertura y cierre');
   check(await row(1).getByText('Disponible para responder',{exact:true}).isVisible(),'Encuesta disponible en Próximas');
   check(await row(2).getByText(/Todavía no disponible/).isVisible(),'Apertura futura en Próximas con aviso informativo');
-  const choice=id=>row(id).locator('[data-feedback-choice]');
+  const choice=id=>row(id).locator('[data-manual-choice]');
   check(await choice(1).count()===0&&await choice(2).count()===0&&await row(1).locator('[data-reverify]').isVisible(),'Disponible y próxima apertura sin selector');
   await page.locator('[data-tab="atrasadas"]').click();
   check(await row(18).getByText('Disponible para responder',{exact:true}).isVisible()&&await choice(18).count()===0,'Vencida pero disponible según Moodle');
@@ -130,24 +130,29 @@ async page=>{
   check(await row(5).isVisible()&&reads.length===7,'El control de respuesta no borra la confirmación anterior');
   await page.locator('[data-tab="pendientes"]').click();
   check(await row(1).isVisible(),'La encuesta abierta también aparece en Pendientes');
+  check(await row(4).count()===1&&await choice(4).inputValue()==='','La encuesta cerrada sin declarar también aparece en Pendientes');
+  await page.locator('[data-tab="atrasadas"]').click();
+  check(await row(4).count()===0,'Cerrar sin evidencia de participación no convierte la encuesta en atrasada');
   const filtered=await page.evaluate(()=>UGCore.presentationList([
     {it:{mod:'feedback',cmid:'1',due:1},b:'proximas'}
   ],['pendientes','proximas']).length);
   check(filtered===1,'Próximas y Pendientes juntas muestran una sola fila');
   await page.locator('[data-tab="desconocidas"]').click();
-  await row(4).getByText('Encuesta cerrada · No se pudo comprobar la participación').waitFor();
-  await row(4).locator('[data-feedback-choice]').selectOption('completed');
+  await row(4).getByText('Encuesta cerrada · Participación sin confirmar').waitFor();
+  await row(4).locator('[data-manual-choice]').selectOption('yes');
   await page.locator('[data-tab="entregadas"]').click();
-  await row(4).getByText('Completada · Confirmación manual').waitFor();
-  await row(4).locator('[data-feedback-choice]').selectOption('not_completed');
+  await row(4).getByText('Declarada realizada · Confirmación manual').waitFor();
+  await row(4).locator('[data-manual-choice]').selectOption('no');
   await page.locator('[data-tab="atrasadas"]').click();
-  await row(4).getByText('Encuesta cerrada · No completada (manual)').waitFor();
+  await row(4).getByText('Declarada no realizada · Confirmación manual').waitFor();
   await page.reload();await idle();
   await page.locator('[data-tab="pendientes"]').click();
-  check(await row(4).locator('[data-feedback-choice]').inputValue()==='not_completed','La declaración negativa persiste tras recargar');
-  await row(4).locator('[data-feedback-choice]').selectOption('');
+  check(await row(4).locator('[data-manual-choice]').inputValue()==='no','La declaración negativa persiste tras recargar');
+  await row(4).locator('[data-manual-choice]').selectOption('');
   await page.locator('[data-tab="desconocidas"]').click();
-  await row(4).getByText('Encuesta cerrada · No se pudo comprobar la participación').waitFor();
+  await row(4).getByText('Encuesta cerrada · Participación sin confirmar').waitFor();
+  await page.locator('[data-tab="pendientes"]').click();
+  check(await row(4).count()===1,'Retirar la declaración devuelve la encuesta a Pendientes');
   check(reads.length===7,'Restaurar incertidumbre conserva el estado y no inicia consultas');
   const boundaries=await page.evaluate(({html,closed,now})=>{
     const parse=content=>new DOMParser().parseFromString('<body id="page-mod-feedback-view" class="cmid-1">'+

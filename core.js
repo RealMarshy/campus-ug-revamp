@@ -66,11 +66,11 @@
       const source = ['moodle','heuristic'].includes(s.source) ? s.source : 'unknown';
       const t = Number.isFinite(s.t) && s.t<=now ? s.t : 0;
       const absence=!s.done&&source==='moodle'&&key.startsWith('quiz:')&&
-        ['quiz_no_attempts','quiz_unavailable','quiz_not_yet_open','quiz_scheduled'].includes(s.absence)?s.absence:null;
+        ['quiz_no_attempts','quiz_unavailable','quiz_not_yet_open','quiz_scheduled','quiz_closed_unknown'].includes(s.absence)?s.absence:null;
       const quizOpenAt=['quiz_not_yet_open','quiz_scheduled'].includes(absence)&&calendarTime(s.quizOpenAt)?s.quizOpenAt:null;
       const evaluationGrade=!s.done&&source==='moodle'&&key.startsWith('assign:')?gradeText(s.evaluationGrade):null;
       const assignAvailability=!s.done&&source==='moodle'&&key.startsWith('assign:')&&
-        ['group_blocked','add_submission'].includes(s.assignAvailability)?s.assignAvailability:null;
+        ['group_blocked','add_submission','no_submission_option'].includes(s.assignAvailability)?s.assignAvailability:null;
       out.auto[key] = {done:s.done,t,source,...(s.recheck ? {recheck:true} : {}),...(absence?{absence}:{}),...(quizOpenAt?{quizOpenAt}:{}),...(evaluationGrade?{evaluationGrade}:{}),
         ...(assignAvailability?{assignAvailability}:{}),...(absence==='quiz_no_attempts'&&s.available===true?{available:true}:{}),
         ...(key.startsWith('feedback:')&&source==='moodle'&&!s.done&&feedbackStates.includes(s.feedbackState)?{feedbackState:s.feedbackState}:{})};
@@ -96,7 +96,7 @@
   function verificationDecision({item,status,manual,failure,stamp,closeAt=null,mode='normal',now=Date.now()}) {
     if(!['assign','quiz','feedback'].includes(item.mod))return 'manual';
     if(mode==='all'||mode==='one')return 'check';
-    if(typeof manual==='boolean')return 'manual';
+    if(typeof manual==='boolean'||manual==='yes'||manual==='no')return 'manual';
     if(failure && now<failure.retryAt)return 'backoff';
     if(failure || !status || status.source!=='moodle')return 'check';
     const verified=stamp?.stateAt===status.t ? stamp : null;
@@ -204,8 +204,10 @@
     const failures=cleanFailures(data[prefix+'failures'],now);
     const manual={};
     const manualDecision=(id,value)=>{
+      if(value?.participation==='yes'||value?.participation==='no')return value.participation;
       if(id.startsWith('feedback:')){
-        if(value?.participation==='completed'||value?.participation==='not_completed')return value.participation==='completed';
+        if(value?.participation==='completed')return 'yes';
+        if(value?.participation==='not_completed')return 'no';
         return value?.done===true?true:undefined;
       }
       return typeof value?.done==='boolean'?value.done:undefined;
@@ -251,6 +253,11 @@
   }
 
   function completion(item, manual, auto) {
+    if(auto?.done===true&&(auto.source==='moodle'||typeof manual==='string')){
+      if(item.mod==='forum'||auto.source==='unknown')return {done:true,source:auto.source==='unknown'?'historical_unknown':'historical'};
+      return {done:true,source:auto.source};
+    }
+    if(manual==='yes'||manual==='no')return {done:manual==='yes',source:'manual'};
     if(typeof manual==='boolean')return {done:manual,source:'manual'};
     if(item.mod==='forum'){
       if(auto?.done===true)return {done:true,source:auto.source==='unknown'?'historical_unknown':'historical'};
@@ -379,6 +386,13 @@
     return gradeText(normalize(cell.textContent));
   }
 
+  function assignmentGroupName(node,normalize) {
+    const row=node.closest('.submissionstatustable tr');
+    return node.matches('.teamname:not(.alert)')&&row?.cells.length===2&&row.cells[1].contains(node)&&
+      /^(Grupo|Group)$/i.test(normalize(row.cells[0].textContent))&&
+      !node.closest('.alert, [role="alert"]')&&!node.querySelector('.alert, [role="alert"]');
+  }
+
   function assignmentAvailability(main,origin,cmid,normalize,trace) {
     const excluded='.activity-description, #intro, .intro, aside, nav, footer';
     const shortNotice=/^(?:Not a member of any group|No es miembro de ningún grupo|No perteneces? a ningún grupo)\.?$/i;
@@ -390,7 +404,7 @@
       message.querySelectorAll('button[data-dismiss="alert"], button[data-bs-dismiss="alert"]').forEach(button=>button.remove());
       const value=normalize(message.textContent);
       const evidence=shortNotice.test(value)?'short':node.matches('.alert')&&description.test(value)?'description':'unrecognized';
-      if(trace)trace.groupNotice=evidence;
+      if(trace&&(evidence!=='unrecognized'||!assignmentGroupName(node,normalize)))trace.groupNotice=evidence;
       if(evidence!=='unrecognized')return 'group_blocked';
     }
     const add=[...main.querySelectorAll('button[type="submit"], input[type="submit"]')].some(control=>{
@@ -457,13 +471,13 @@
   }
 
   const quizMonths='enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre'.split(' ');
-  function quizSchedule(doc,cmid,normalize,expectedCloseAt,trace) {
+  function quizSchedule(doc,cmid,normalize,expectedCloseAt,trace,closed=false) {
     const moduleMatches=positiveId(cmid)&&[...doc.body.classList].filter(c=>c.startsWith('cmid-')).join(' ')==='cmid-'+cmid;
     if(trace)trace.moduleMatches=moduleMatches;
     if(!moduleMatches&&!trace)return null;
     const campusBlock='header#page-header [data-region="header-extras-container"] .header-extra [data-activityname] > [data-region="activity-dates"]';
     const standardBlock=':is([data-for="page-activity-header"], .activity-header, [data-region="activity-information"]) [data-region="activity-dates"]';
-    const blocks=[...doc.querySelectorAll(standardBlock+', '+campusBlock)].filter(n=>
+    const blocks=[...doc.querySelectorAll(closed?campusBlock:standardBlock+', '+campusBlock)].filter(n=>
       !hiddenEvidence(n)&&!n.closest('.activity-description, #intro, .description, aside, nav, footer, form'));
     if(trace)trace.header=blocks.length===1?'found':blocks.length?'multiple':'missing';
     if(blocks.length!==1)return null;
@@ -478,15 +492,19 @@
       }
     }
     const labelSelector=campus?':scope > .date-item > span.date-item-label':'strong';
+    const openingLabel=closed?'abrió:':'abre:', closingLabel=closed?'cerró:':'cierra:';
     const dates={}, seen=new Set();
     let invalid=false;
     if(trace){trace.opening='missing';trace.closing='missing';}
     for(const label of block.querySelectorAll(labelSelector)){
       if(hiddenEvidence(label))continue;
       const name=normalize(label.textContent).toLowerCase();
-      if(!['abre:','cierra:'].includes(name))continue;
+      if(![openingLabel,closingLabel].includes(name)){
+        if(closed&&['abre:','cierra:'].includes(name))invalid=true;
+        continue;
+      }
       const row=label.parentElement;
-      const field=name==='abre:'?'opening':'closing';
+      const field=name===openingLabel?'opening':'closing';
       if(trace)trace[field]=seen.has(name)?'duplicate':'invalid';
       if(seen.has(name)||row===blocks[0]||row.querySelectorAll(campus?'span.date-item-label':'strong').length!==1||
         [...row.querySelectorAll('*')].some(hiddenEvidence)){invalid=true;seen.add(name);continue;}
@@ -498,21 +516,44 @@
       if(!parts){invalid=true;continue;}
       const [,day,month,year,hour,minute]=parts;
       const monthIndex=quizMonths.indexOf(month.toLowerCase());
-      // Accept the localized text only when the close minute agrees with the campus calendar in Ecuador.
+      // Moodle UG displays this localized window in Ecuador time.
       const wall=new Date(Date.UTC(+year,monthIndex,+day,+hour,+minute));
       if(+year<2000||monthIndex<0||wall.getUTCMonth()!==monthIndex||wall.getUTCDate()!==+day||
         +hour>23||+minute>59||!value.toLowerCase().startsWith(wall.toLocaleDateString('es-EC',{weekday:'long',timeZone:'UTC'})+',')){invalid=true;continue;}
       dates[name]=wall.getTime()+5*3600e3;
       if(trace)trace[field]=field==='opening'?(dates[name]>Date.now()?'future':'elapsed'):'valid';
     }
-    const openAt=dates['abre:'],closeAt=dates['cierra:'];
+    const openAt=dates[openingLabel],closeAt=dates[closingLabel];
     const ordered=openAt<closeAt;
     const matches=Math.floor(expectedCloseAt/60000)*60000===closeAt;
     if(trace){
       trace.dateOrder=openAt&&closeAt?(ordered?'valid':'invalid'):'unknown';
       trace.calendarClose=expectedCloseAt==null?'missing':!closeAt?'unknown':matches?'match':'mismatch';
     }
-    return !invalid&&moduleMatches&&ordered&&matches?{openAt}:null;
+    return !invalid&&moduleMatches&&ordered&&
+      (closed?closeAt<=Date.now()&&(expectedCloseAt==null||matches):matches)?{openAt}:null;
+  }
+
+  function quizReturnOnly(main,origin,normalize) {
+    const blocks=[...main.querySelectorAll('.quizattempt')];
+    if(blocks.length!==1||hiddenEvidence(blocks[0])||
+      blocks[0].closest('.activity-description, .description, .intro, #intro, nav, aside, form'))return false;
+    const block=blocks[0], forms=block.querySelectorAll('form');
+    if(forms.length!==1)return false;
+    const form=forms[0], controls=[...form.elements];
+    const buttons=controls.filter(node=>node.matches('button[type="submit"], input[type="submit"]'));
+    if(form.getAttribute('method')?.toLowerCase()!=='get'||hiddenEvidence(form)||buttons.length!==1||
+      block.querySelectorAll('a, button, input, textarea, select').length!==controls.length||
+      controls.some(node=>node!==buttons[0]&&!node.matches('input[type="hidden"]')))return false;
+    const button=buttons[0];
+    if(hiddenEvidence(button)||button.matches(':disabled, [formaction], [formmethod]')||
+      !/^(Volver al curso|Back to the course)$/i.test(normalize(button.tagName==='INPUT'?button.value:button.textContent))||
+      normalize(block.textContent)!==normalize(form.textContent)||
+      normalize(form.textContent)!==normalize(button.textContent))return false;
+    try{
+      const url=new URL(form.getAttribute('action'),origin);
+      return url.origin===origin&&url.pathname==='/course/view.php'&&!url.username&&!url.password;
+    }catch{return false;}
   }
 
   function recognize(doc, mod, userId, origin, cmid, expectedCloseAt, traceActivity=false) {
@@ -553,8 +594,19 @@
         const submissionRows=[...main.querySelectorAll('.submissionstatustable tr')].filter(row=>row.cells.length===2&&
           /^(Submission status|Estado de la entrega|Estado de entrega)$/i.test(normalize(row.cells[0].textContent))&&
           !hiddenEvidence(row)&&[...row.cells].every(cell=>!hiddenEvidence(cell)&&![...cell.querySelectorAll('*')].some(hiddenEvidence)));
-        if(submissionRows.length===1&&/^(Todavía no se han realizado envíos|No submissions have been made yet|Nothing has been submitted for this assignment|No attempt|Sin entrega|No entregado)\.?$/i.test(normalize(submissionRows[0].cells[1].textContent))) {
+        const submissionText=normalize(submissionRows[0]?.cells[1].textContent??'');
+        if(submissionRows.length===1&&/^(Todavía no se han realizado envíos|No se ha enviado nada en esta tarea|No submissions have been made yet|Nothing has been submitted for this assignment|No attempt|Sin entrega|No entregado)\.?$/i.test(submissionText)) {
           evaluationGrade=assignmentEvaluation(main,normalize,evidence);
+          const row=submissionRows[0];
+          if(moduleMatches&&!evaluationGrade&&!assignAvailability&&nodes.length===1&&nodes[0]===row.cells[1]&&
+            !row.closest('#intro, .intro, .description, .activity-description, aside, nav, footer, form, [aria-busy="true"]')&&
+            ![...main.querySelectorAll('.alert, .submissionstatustable .teamname, .availabilityinfo, input[name="action"], button, input[type="submit"], a[href], form[action]')].some(node=>{
+              if(hiddenEvidence(node)||node.closest('#intro, .intro, .description, .activity-description, aside, nav, footer'))return false;
+              return node.matches('.alert, .availabilityinfo')||(node.matches('.teamname')&&!assignmentGroupName(node,normalize))||
+                /^(?:add|edit)submission$/i.test(node.value??'')||
+                ['href','action','formaction'].some(attr=>/(?:[?&]action=(?:add|edit)submission(?:&|$))/i.test(node.getAttribute(attr)??''))||
+                /^(?:Add submission|Edit submission|Agregar entrega|Añadir entrega|Editar entrega)$/i.test(normalize(node.value||node.textContent));
+            }))assignAvailability='no_submission_option';
           if(evaluationGrade&&(!/^[1-9]\d*$/.test(cmid||'')||
             [...doc.body.classList].filter(name=>name.startsWith('cmid-')).join(' ')!=='cmid-'+cmid))
             throw problem('VIEW_MISMATCH',evidence);
@@ -629,8 +681,15 @@
         evidence.quizStart=quizStart;
         const explicitAbsence=noAttempts && quizStart==='missing';
         available=pageView==='view'&&quizStart==='first'&&!restriction&&!ambiguousNotice;
-        if(!table&&!summaries.length&&!lists.length&&!hasAttemptLink&&!evidence.mainBusy&&
-            (restriction||explicitAbsence||available)){
+        const noVisibleHistory=!table&&!summaries.length&&!lists.length&&!hasAttemptLink;
+        if(noVisibleHistory&&pageView==='view'&&quizMain&&!quizMain.closest('[aria-busy="true"]')&&
+          !noAttempts&&!start&&!restriction&&!ambiguousNotice&&
+          [...quizMain.querySelectorAll('.quizinfo')].some(node=>!hiddenEvidence(node))&&
+          !quizMain.querySelector('form[action*="startattempt.php"], form[action*="/quiz/attempt.php"]')&&
+          quizReturnOnly(quizMain,origin,normalize)&&quizSchedule(doc,cmid,normalize,expectedCloseAt,null,true)){
+          done=false;
+          absence='quiz_closed_unknown';
+        }else if(noVisibleHistory&&!evidence.mainBusy&&(restriction||explicitAbsence||available)){
           done=false;
           const temporal=/^(?:This quiz is currently not available|(?:Este|El) cuestionario no está disponible en este momento|This quiz is not yet open|(?:Este|El) cuestionario aún no está abierto)\.?$/i;
           const temporalNotice=notices.some(n=>n.closest('.quizattempt')&&temporal.test(normalize(n.textContent)));
@@ -730,14 +789,16 @@
     };
   }
 
-  function matchesCategory(category, bucket) {
-    return category === 'pendientes' ? ['proximas','atrasadas','pendientes'].includes(bucket) : category === bucket;
+  function matchesCategory(category, bucket, awaitingConfirmation=false) {
+    return category==='pendientes'
+      ? ['proximas','atrasadas','pendientes'].includes(bucket)||(bucket==='desconocidas'&&awaitingConfirmation)
+      : category===bucket;
   }
 
   function presentationList(rows, selected) {
     const result = new Map();
-    for(const {it,b} of rows){
-      if(selected.some(category=>matchesCategory(category,b)))result.set(it.mod+':'+it.cmid,it);
+    for(const {it,b,awaitingConfirmation} of rows){
+      if(selected.some(category=>matchesCategory(category,b,awaitingConfirmation)))result.set(it.mod+':'+it.cmid,it);
     }
     const ascending = selected.some(id=>id==='proximas'||id==='pendientes');
     return [...result.values()].sort((a,b)=>ascending ? a.due-b.due : b.due-a.due);

@@ -244,8 +244,8 @@
 .ugr-diagnostic pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; color: var(--ugr-text); background: var(--ugr-surface); }
 .ugr-unknown { border-left-color: var(--ugr-control-border); }
 .ugr-actions { display: flex; gap: .25rem; flex-wrap: wrap; }
-.ugr-feedback-choice { display: grid; gap: .15rem; font-size: .75rem; max-width: 100%; }
-.ugr-feedback-choice select {
+.ugr-manual-choice { display: grid; gap: .15rem; font-size: .75rem; min-width: 0; max-width: 100%; }
+.ugr-manual-choice select {
   max-width: 100%;
   color: var(--ugr-button-text, var(--ugr-text));
   background: var(--ugr-button-bg, var(--ugr-bg));

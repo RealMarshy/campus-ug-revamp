@@ -109,7 +109,7 @@ async (page, baseline=false) => {
   const autoChanges=Object.values(saved).find(v=>v.changes).changes.filter(entry=>entry.type==='auto');
   check(autoChanges.length===1&&autoChanges[0].key==='assign:2'&&!autoChanges[0].value.done,'Solo retiro real modifica historial de estados');
   check(Object.entries(oldStore).every(([k,v])=>JSON.stringify(saved[k])===JSON.stringify(v)),'Base de datos 2.0.4, marcas y otra cuenta intactas');
-  check(first.effective.completed.manual===0&&first.effective.completed.historical===1,'Marca negativa prevalece y foro conserva estado');
+  check(first.effective.completed.manual===0&&first.effective.completed.historical===1,'La evidencia automática y el historial de foro conservan su procedencia');
 
   const execute=async kind=>{mode=kind;calls={};retryPeak=0;await clickAll();await waitFinal(page);return report();};
   for(const [kind,recovered,errors] of [['partial',1,2],['none',0,3],['offline',0,3]]){
@@ -118,7 +118,7 @@ async (page, baseline=false) => {
     check(d.lastRun.retriesAttempted===3&&retryPeak===1&&Math.max(...Object.values(calls))===2,kind+' no reintenta indefinidamente');
   }
   const stale=await report();
-  check(stale.effective.completed.staleAutomatic===1,'Entrega confirmada permanece en Entregadas con reconfirmación pendiente');
+  check(stale.effective.completed.staleAutomatic===2,'Ambas entregas confirmadas se conservan aunque una tenga una marca anterior');
   await page.getByRole('tab',{name:/^Entregadas/}).click();
   check(await page.locator('.ugr-item').filter({hasText:'Actividad 1'}).getByText(/Reconfirmación pendiente/).count()===1,'Aviso en la fila de la entrega');
   const retryTimeout=await execute('retryTimeout');

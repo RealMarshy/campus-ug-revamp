@@ -9,6 +9,24 @@ const old=now-220*86400e3;
 const item=(id,mod='forum')=>({id:String(id),mod,cmid:String(id),name:'Ejemplo '+id,courseId:2,course:'Curso',due:Math.floor(old/1000),url:origin+'/mod/'+mod+'/view.php?id='+id,synced:old});
 const failure={code:'SELECTOR_MISSING',t:old,retryAt:old+1800000,attempts:5,details:{forumContainers:1,forumAuthors:0}};
 
+test('Las declaraciones explícitas se aíslan por cuenta y actividad y se retiran sin borrar evidencia',()=>{
+  const history={schema:1,changes:[
+    {type:'manual',key:'quiz:1',value:{participation:'yes',done:true}},
+    {type:'manual',key:'quiz:1',value:{participation:'no',done:false}},
+    {type:'auto',key:'quiz:1',value:{done:true,source:'moodle',t:old}},
+    {type:'manual',key:'assign:1',value:{participation:'yes',done:true}},
+    {type:'manual',key:'assign:1',value:null}
+  ]};
+  const raw={[prefix+'history']:history,[prefix+'manual:forum:1']:{done:false}};
+  const saved=C.readState(raw,prefix,origin,now);
+  assert.deepEqual(saved.manual,{'forum:1':false,'quiz:1':'no'});
+  assert.deepEqual(C.readState(raw,'otra:',origin,now).manual,{});
+  assert.deepEqual(C.completion(item(1,'quiz'),saved.manual['quiz:1'],saved.cache.auto['quiz:1']),{done:true,source:'moodle'});
+  assert.deepEqual(C.completion(item(1,'quiz'),'no',{done:true,source:'unknown'}),{done:true,source:'historical_unknown'});
+  assert.deepEqual(C.completion(item(1,'quiz'),'no',null),{done:false,source:'manual'});
+  assert.equal(C.verificationDecision({item:item(1,'quiz'),manual:'no'}),'manual');
+});
+
 test('lectura aditiva determinista de claves 2.0.2, incluso datos antiguos y huérfanos',()=>{
   const raw={
     [prefix+'cache']:{schema:2,updated:old,months:{'2026-3':{t:old,items:[item(1),item(2),item(3)]}},auto:{'forum:1':{done:true,source:'heuristic',t:old},'forum:2':{done:true,t:old},'assign:9':{done:true,t:old,source:'moodle'}}},

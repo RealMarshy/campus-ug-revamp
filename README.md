@@ -1,4 +1,4 @@
-# Campus UG Revamp 2.4.0 — The Daniel Update
+# Campus UG Revamp 2.5.0 (desarrollo)
 
 Extensión comunitaria e independiente para Chrome que reúne las actividades del Área personal de Moodle de la Universidad de Guayaquil. Usa Manifest V3. Este proyecto no es oficial ni está afiliado a la Universidad de Guayaquil o a Moodle.
 
@@ -12,7 +12,7 @@ Revamp distingue las tareas disponibles para agregar una entrega de las bloquead
 
 **2.3.0.** Incorpora encuestas de Feedback que aparecen en el calendario con eventos válidos. La apertura y el cierre se conservan por separado. En encuestas con cierre verificado, puedes usar la confirmación manual cuando Moodle no confirme la participación.
 
-En cada encuesta, **Participación** permite declarar que la completaste, que no la completaste o retirar la declaración. Una encuesta cerrada que declaras no completada queda en Atrasadas y Pendientes. Al retirar la declaración se recupera la evidencia disponible de Moodle.
+Usa **Participación** en foros y encuestas elegibles, o **Realización** en cuestionarios cerrados sin historial. En tareas y otros cuestionarios, **✓** sigue disponible para declarar que completaste la actividad cuando Moodle no ha confirmado su realización. El selector permite cambiar o retirar la declaración después. **Sin declarar** recupera el último estado conocido sin consultar Moodle. Una finalización o evaluación verificada conserva prioridad.
 
 El resumen y el diagnóstico aparecen ocultos si la cuenta todavía no tiene una ubicación guardada. En **Personalizar → Ubicación del estado**, selecciona Arriba, Abajo u Oculto. **Mostrar estado** recupera la última ubicación visible. La selección se guarda por cuenta y **Cancelar verificación** sigue disponible durante una reverificación.
 

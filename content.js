@@ -2,7 +2,7 @@
   'use strict';
   if (document.getElementById('ugr-panel')) return;
   const C = UGCore, CFG = C.CONFIG, MODS = C.mods, ORIGIN = location.origin;
-  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.4.0';
+  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.5.0';
   const session = C.identity(document);
   const prefix = `ugr2:${ORIGIN}:${session.userId}:`;
   const historyKey=prefix+'history', lockName='campus-ug-revamp:'+session.userId;
@@ -112,12 +112,17 @@
   const titleEntity=document.createElement('textarea');
   let plainTitles=new Map();
   function collect(){
-    const map=new Map(), windows=new Map();
+    const map=new Map(), windows=new Map(), quizCloses=new Map();
     for(const month of Object.values(cache.months)){
       const active=month.activeIds?new Set(month.activeIds):null;
       for(const it of month.items){
         const id=key(it);
         if(!map.has(id)||map.get(id).synced<=it.synced)map.set(id,it);
+        if(it.mod==='quiz'&&it.closeAt!=null&&(!active||active.has(it.id))){
+          if(!quizCloses.has(id))quizCloses.set(id,new Map());
+          const closes=quizCloses.get(id);
+          closes.set(it.closeAt,Math.max(closes.get(it.closeAt)??0,it.synced));
+        }
         if(it.mod!=='feedback'||(active&&!active.has(it.id)))continue;
         if(!windows.has(id))windows.set(id,{open:new Set(),close:new Set()});
         if(it.openAt!=null)windows.get(id).open.add(it.openAt);
@@ -126,6 +131,11 @@
     }
     const nextTitles=new Map();
     state.items=[...map.values()].map(it=>{
+      const closes=quizCloses.get(key(it));
+      if(closes){
+        const [[closeAt,synced]]=closes;
+        it={...it,quizCalendarCloseAt:closeAt,quizCalendarCloseSynced:synced,quizCalendarConflict:closes.size>1};
+      }
       if(it.mod==='feedback'){
         const dates=windows.get(key(it));
         const [openAt=null]=dates?.open??[], [closeAt=null]=dates?.close??[];
@@ -250,7 +260,7 @@
     let archived=0, reactivated=0, cacheHits=0, changed=0, detected=0, unknownClose=0, shared=false, saveStamps=periodic;
     const recovered={forum:0,assign:0,quiz:0,feedback:0};
     let quizOpening,assignGroup;
-    const recognizedAbsences={quiz_no_attempts:0,quiz_unavailable:0,quiz_not_yet_open:0,quiz_scheduled:0};
+    const recognizedAbsences={quiz_no_attempts:0,quiz_unavailable:0,quiz_not_yet_open:0,quiz_scheduled:0,quiz_closed_unknown:0};
     lastRun={mode,trigger,manual,checked:0,activityErrors:0,calendarErrors:0,skipped:0,recovered,recognizedAbsences};
     try{
       assertSession();
@@ -347,11 +357,11 @@
           if(failures[key(it)])recovered[it.mod]++;
           quizOpening=status.quizOpening??quizOpening;
           assignGroup=status.assignGroup??assignGroup;
-          if(previous?.done&&previous.source==='moodle'&&(it.mod==='feedback'||
-            it.mod==='quiz'&&['quiz_unavailable','quiz_not_yet_open','quiz_scheduled'].includes(status.absence))){
+          if(Object.hasOwn(recognizedAbsences,status.absence))recognizedAbsences[status.absence]++;
+          if(previous?.done&&(it.mod==='quiz'&&status.absence==='quiz_closed_unknown'||previous.source==='moodle'&&(it.mod==='feedback'||
+            it.mod==='quiz'&&['quiz_unavailable','quiz_not_yet_open','quiz_scheduled'].includes(status.absence)))){
             status={...previous,t:status.t,closed:status.closed,...(it.mod==='quiz'&&stamp?.stateAt===previous.t?{grade:stamp.grade}:{})};
           }
-          if(Object.hasOwn(recognizedAbsences,status.absence))recognizedAbsences[status.absence]++;
           const closedAt=!status.absence && status.closed && closeAt && (status.t>closeAt||it.mod==='feedback'&&status.t===closeAt) ? closeAt:null;
           if(stamp?.closedAt && stamp.closedAt!==closedAt)reactivated++;
           if(!previous||previous.done!==status.done||previous.source!==status.source||previous.absence!==status.absence||previous.available!==status.available||previous.feedbackState!==status.feedbackState||previous.evaluationGrade!==status.evaluationGrade||previous.quizOpenAt!==status.quizOpenAt||previous.assignAvailability!==status.assignAvailability){
@@ -549,14 +559,30 @@
   /* ---------- clasificación ---------- */
 
   const completion=it=>C.completion(it,state.store.manual[key(it)],state.store.auto[key(it)]);
-  const staleDelivered=it=>state.store.manual[key(it)]===undefined &&
+  const staleDelivered=it=>completion(it).source==='moodle' &&
     state.store.auto[key(it)]?.source==='moodle' && state.store.auto[key(it)].done && !!failures[key(it)];
-  const dueBucket=it=>it.due * 1000 < Date.now() ? 'atrasadas' : 'proximas';
-  const feedbackClosed=it=>it.closeAt!=null&&Date.now()>=it.closeAt&&stamps[key(it)]?.closedAt===it.closeAt;
-  const showFeedbackChoice=it=>it.mod==='feedback'&&feedbackClosed(it)&&
-    (state.store.manual[key(it)]!==undefined||!completion(it).done);
+  const dueBucket=it=>it.due==null?'pendientes':it.due * 1000 < Date.now() ? 'atrasadas' : 'proximas';
+  const feedbackClosed=it=>!it.conflict&&it.closeAt!=null&&Date.now()>=it.closeAt&&stamps[key(it)]?.closedAt===it.closeAt;
+  function awaitingClosedConfirmation(it){
+    const id=key(it), auto=state.store.auto[id];
+    if(failures[id]||state.store.manual[id]!==undefined||auto?.source!=='moodle'||auto.done)return false;
+    if(it.mod==='feedback')return auto.feedbackState==='closed'&&feedbackClosed(it);
+    if(it.mod!=='quiz'||auto.absence!=='quiz_closed_unknown'||it.quizCalendarConflict)return false;
+    const stamp=stamps[id], verifiedAt=stamp?.stateAt===auto.t?stamp.t:auto.t;
+    return it.quizCalendarCloseAt==null||
+      it.quizCalendarCloseAt<=Date.now()&&it.quizCalendarCloseSynced<=verifiedAt;
+  }
 
   const evaluationGrade=it=>it.mod==='assign'?state.store.auto[key(it)]?.evaluationGrade:null;
+  const confirmed=it=>C.completion(it,undefined,state.store.auto[key(it)]).done||!!evaluationGrade(it);
+  const manualLabels={
+    assign:['Realización','La entregué','No la entregué'],quiz:['Realización','Lo realicé','No lo realicé'],
+    feedback:['Participación','La respondí','No la respondí'],forum:['Participación','Participé','No participé']
+  };
+  const choiceValue=value=>value===true?'yes':value===false?'legacy':value??'';
+  const showManualChoice=it=>Object.hasOwn(manualLabels,it.mod)&&(state.store.manual[key(it)]!==undefined||
+    !confirmed(it)&&(it.mod==='forum'||feedbackClosed(it)||
+    it.mod==='quiz'&&state.store.auto[key(it)]?.absence==='quiz_closed_unknown'&&!failures[key(it)]));
 
   const bucket = (it) => {
     const status=completion(it);
@@ -570,7 +596,7 @@
       if(['available','in_progress'].includes(feedback))return it.due==null?'pendientes':dueBucket(it);
       return 'desconocidas';
     }
-    if(status.source!=='manual'&&evaluationGrade(it)&&!['STATE_UNKNOWN','SELECTOR_MISSING','HTML_INCOMPATIBLE','VIEW_MISMATCH'].includes(failures[key(it)]?.code))return 'entregadas';
+    if(evaluationGrade(it)&&!['STATE_UNKNOWN','SELECTOR_MISSING','HTML_INCOMPATIBLE','VIEW_MISMATCH'].includes(failures[key(it)]?.code))return 'entregadas';
     if(staleDelivered(it))return 'entregadas';
     if(it.mod==='quiz'&&status.source!=='manual'&&!failures[key(it)]&&state.store.auto[key(it)]?.quizOpenAt>Date.now()&&it.due>Date.now()/1000)return 'proximas';
     const auto=state.store.auto[key(it)];
@@ -582,7 +608,10 @@
   function visible(course) {
     return state.items
       .filter((it) => course === 'all' || String(it.courseId) === course)
-      .map((it) => ({ it, b: bucket(it) }));
+      .map(it=>{
+        const b=bucket(it);
+        return {it,b,awaitingConfirmation:b==='desconocidas'&&awaitingClosedConfirmation(it)};
+      });
   }
 
   async function savePresentation() {
@@ -660,7 +689,7 @@
       stamp?.stateAt===auto.t?stamp.grade:null);
     const historicalGrade=grade&&(failures[id]||Date.now()-(evaluation?auto.t:stamp.t)>=CFG.completed);
     const gradeHtml=grade?`<span class="ugr-grade">${historicalGrade?`Última calificación confirmada (${esc(new Date(evaluation?auto.t:stamp.t).toLocaleString('es-EC'))})`:'Calificación'}: ${esc(grade)}</span>`:'';
-    const statusText=done?(evaluation?(state.store.manual[id]===undefined?'Calificada sin envío en Moodle':'Entregada (manual)'):'Entregada'):rel(it.due);
+    const statusText=done?(evaluation?'Calificada sin envío en Moodle':'Entregada'):rel(it.due);
     const soon=classification==='proximas' && it.due * 1000 - Date.now() < 24 * 3600 * 1000;
     const cls = unknown ? 'ugr-unknown' : done ? 'ugr-done' : classification==='atrasadas' ? 'ugr-late' : soon ? 'ugr-soon' : '';
     return `
@@ -676,22 +705,32 @@
         </div>
         <div class="ugr-actions">
         ${it.mod==='forum'?'':`<button type="button" class="ugr-toggle" data-reverify="${esc(key(it))}" title="Reverificar esta actividad" aria-label="Reverificar esta actividad">⟳</button>`}
-        ${it.mod==='feedback'? (showFeedbackChoice(it)?`<label class="ugr-feedback-choice"><span>Participación</span>
-          <select data-feedback-choice aria-label="${esc('Confirmación manual: '+it.name)}">
-            <option value=""${state.store.manual[id]===undefined?' selected':''}>Dejar sin verificar</option>
-            <option value="completed"${state.store.manual[id]===true?' selected':''}>Sí, la completé</option>
-            <option value="not_completed"${state.store.manual[id]===false?' selected':''}>No la completé</option>
-          </select></label>`:'') : `<button type="button" class="ugr-toggle" data-toggle="${esc(key(it))}"
-          title="${done ? 'Marcar como no entregada' : 'Marcar como entregada'}"
-          aria-label="${done ? 'Marcar como no entregada' : 'Marcar como entregada'}">${done ? '↺' : '✓'}</button>`}
+        ${showManualChoice(it)?manualChoice(it):
+          ['assign','quiz'].includes(it.mod)&&!confirmed(it)?`<button type="button" class="ugr-toggle" data-toggle="${esc(id)}"
+          title="Marcar como entregada" aria-label="Marcar como entregada">✓</button>`:''}
         </div>
       </li>`;
   }
 
+  function manualChoice(it){
+    const [label,yes,no]=manualLabels[it.mod], selected=choiceValue(state.store.manual[key(it)]), lock=confirmed(it);
+    const option=(value,text)=>`<option value="${value}"${value===selected?' selected':''}${lock&&value&&value!==selected?' disabled':''}>${text}</option>`;
+    return `<label class="ugr-manual-choice"><span>${label}</span>
+      <select data-manual-choice aria-label="${esc(label+' · declaración manual: '+it.name)}">
+        ${selected==='legacy'?'<option value="legacy" selected disabled>Marca anterior</option>':''}
+        ${option('','Sin declarar')}${option('yes',yes)}${option('no',no)}
+      </select></label>`;
+  }
+
   function sourceLabel(it){
     const status=completion(it);
-    if(it.mod==='feedback'&&status.source==='manual')return status.done?'Completada · Confirmación manual':
-      feedbackClosed(it)?'Encuesta cerrada · No completada (manual)':'No completada (manual)';
+    const manual=state.store.manual[key(it)];
+    if(confirmed(it)&&manual!==undefined&&(manual===false||manual==='no')&&status.done)
+      return status.source==='moodle'?'Entrega confirmada por Moodle · Contradice la declaración manual':'Finalización histórica · Contradice la declaración manual';
+    if(confirmed(it)&&manual!==undefined&&status.source==='manual'&&!status.done)
+      return 'Marca manual anterior · Contradice la finalización histórica';
+    if(evaluationGrade(it)&&manual!==undefined)return 'Calificada sin envío en Moodle · Se conserva la declaración manual';
+    if(status.source==='manual'&&typeof manual==='string')return manual==='yes'?'Declarada realizada · Confirmación manual':'Declarada no realizada · Confirmación manual';
     if(it.mod==='forum'&&!status.done)return 'Requiere confirmación manual';
     if(status.source==='manual')return failures[key(it)]&&it.mod!=='forum'
       ? 'Estado manual · última consulta fallida'
@@ -702,8 +741,8 @@
     const f=failures[key(it)];
     if(it.mod==='feedback'){
       if(status.done)return 'Entregada · Confirmada por Moodle';
-      if(feedbackClosed(it))return 'Encuesta cerrada · No se pudo comprobar la participación';
       if(f||it.conflict)return 'Sin verificar · Estado de la encuesta sin confirmar';
+      if(feedbackClosed(it))return 'Encuesta cerrada · Participación sin confirmar';
       if(s?.feedbackState==='not_yet_open'&&Date.now()<it.openAt)return 'Todavía no disponible · Abre '+fmtDate(it.openAt/1000);
       if(it.openAt!=null&&Date.now()<it.openAt)return 'Sin verificar · Abre '+fmtDate(it.openAt/1000);
       return {available:'Disponible para responder',in_progress:'Disponible para continuar',
@@ -717,13 +756,15 @@
     if(it.mod==='quiz'&&(f||!s||s.source==='unknown'))return 'Sin verificar · Moodle no proporcionó un estado reconocible';
     if(s?.absence==='quiz_no_attempts')return s.available?'No iniciado · Disponible para realizar':
       'No iniciado · No se han registrado intentos del cuestionario';
+    if(s?.absence==='quiz_closed_unknown')return 'Cuestionario cerrado · Participación sin confirmar';
     if(s?.quizOpenAt>Date.now())return 'Todavía no disponible · Abre el '+fmtDate(s.quizOpenAt/1000,"America/Guayaquil");
     if(s?.quizOpenAt)return 'Sin verificar · Disponibilidad pendiente de actualización';
     if(['quiz_unavailable','quiz_not_yet_open','quiz_scheduled'].includes(s?.absence))return 'Todavía no disponible · El cuestionario aún no permite iniciar un intento';
     if(f)return `Desconocido por error: ${C.ERROR_LABELS[f.code]}. ${s ? 'Último estado: '+(s.done?'entregada':'no entregada')+'. ' : ''}Reintento automático desde ${new Date(f.retryAt).toLocaleTimeString('es-EC')}. Puedes reverificar esta actividad.`;
     if(!s || s.source==='unknown') return 'Sin verificar · origen del estado anterior desconocido';
     const label=s.done?'Entrega confirmada por Moodle':s.assignAvailability==='group_blocked'?'Sin entrega · Bloqueada por grupo':
-      s.assignAvailability==='add_submission'?'Sin entrega · Disponible para agregar entrega':'No entregada según Moodle';
+      s.assignAvailability==='add_submission'?'Sin entrega · Disponible para agregar entrega':
+      s.assignAvailability==='no_submission_option'?'No entregada según Moodle · Sin opción para entregar':'No entregada según Moodle';
     const time=stamps[key(it)]?.t??s.t;
     return time>0?`${label} · ${new Date(time).toLocaleString('es-EC')}`:label;
   }
@@ -821,7 +862,7 @@
       <ul class="ugr-list" tabindex="0" aria-label="Actividades filtradas"></ul>
       <div class="ugr-empty"><span data-empty-message></span><button type="button" data-reset-categories hidden>Restablecer filtros</button><button type="button" data-reset-types hidden>Restaurar todos los tipos</button><button type="button" data-clear-date hidden>Limpiar filtro</button></div>
     </div>
-    <div class="ugr-foot">Confirma los foros en Pendientes con ✓ o ↺. En tareas y cuestionarios, haz doble clic en un estado manual para volver a la verificación automática.</div>
+    <div class="ugr-foot">Usa Participación o Realización para declarar una actividad. Sin declarar recupera el estado conocido de Moodle.</div>
     <dialog id="ugr-credits" class="ugr-credits-dialog" aria-labelledby="ugr-credits-title">
       <button class="ugr-credits-close" type="button" aria-label="Cerrar créditos" autofocus>×</button>
       <h4 id="ugr-credits-title">Créditos:</h4>
@@ -1154,7 +1195,8 @@
     }
     panel.querySelector('.ugr-note').textContent=state.progress;
     const countsByTab=Object.fromEntries(TABS.map(t=>[t.id,0]));
-    for(const {b} of filteredRows)for(const t of TABS)if(C.matchesCategory(t.id,b))countsByTab[t.id]++;
+    for(const {b,awaitingConfirmation} of filteredRows)for(const t of TABS)
+      if(C.matchesCategory(t.id,b,awaitingConfirmation))countsByTab[t.id]++;
     for(const t of TABS){const b=ui(`[data-tab="${t.id}"]`);b.hidden=!preferences.visibleTabs.includes(t.id);b.classList.toggle('active',!b.hidden&&t.id===state.tab);b.setAttribute('aria-selected',String(!b.hidden&&t.id===state.tab));b.querySelector('span').textContent=countsByTab[t.id];}
     const scrollTop=ul.scrollTop, wanted=new Set(list.map(key));
     for(const [id,n] of nodes) if(!wanted.has(id)){n.remove();nodes.delete(id);}
@@ -1188,13 +1230,13 @@
     const effective={manualPending:0,unknown:0,persistentActivityFailures:0,completed:{automatic:0,manual:0,historical:0,historicalUnknown:0,staleAutomatic:0,gradedWithoutSubmission:0}};
     for(const {it,b} of rows){
       const status=completion(it);
-      if(it.mod==='forum'&&!status.done)effective.manualPending++;
+      if(it.mod==='forum'&&!status.done&&state.store.manual[key(it)]!=='no')effective.manualPending++;
       if(b==='desconocidas'){
         effective.unknown++;
       }
       if(it.mod!=='forum'&&failures[key(it)]?.recoveryFailed)effective.persistentActivityFailures++;
       if(b==='entregadas'){
-        const category=status.source!=='manual'&&evaluationGrade(it)?'gradedWithoutSubmission':staleDelivered(it)?'staleAutomatic':status.source==='historical_unknown'?'historicalUnknown':status.source==='moodle'||status.source==='heuristic'?'automatic':status.source;
+        const category=evaluationGrade(it)?'gradedWithoutSubmission':staleDelivered(it)?'staleAutomatic':status.source==='historical_unknown'?'historicalUnknown':status.source==='moodle'||status.source==='heuristic'?'automatic':status.source;
         effective.completed[category]++;
       }
     }
@@ -1208,29 +1250,32 @@
       lastPeriodicRun:lastPeriodicRun||null,nextPeriodicRun,lastPeriodicResult,
       effective,activeFailures:records,historicalForumFailures,recentIncidents:incidents},null,2);
   }
-  async function changeManual(id, reset=false, participation){
+  async function changeManual(id, participation, fromSelector=false){
     try{
       assertSession();
       await navigator.locks.request(lockName,async()=>{
         await readCache();
         const it=state.items.find(item=>key(item)===id);
-        if(!it || (reset && (it.mod==='forum'||state.store.manual[id]===undefined)))return;
-        if(it.mod==='feedback'&&!showFeedbackChoice(it)){render();return;}
-        const value=reset?null:it.mod==='feedback'?
-          {participation,done:participation==='completed',t:Date.now()}:{done:bucket(it)!=='entregadas',t:Date.now()};
-        await append([{type:'manual',key:id,value}]);
-        if(reset)delete state.store.manual[id];
-        else state.store.manual[id]=value.done;
-        render();
-        if(it.mod==='feedback'){
-          const select=nodes.get(id)?.querySelector('[data-feedback-choice]');
-          (select||ui('[data-tab][aria-selected="true"]:not([hidden])')||listBody.querySelector('.ugr-list')).focus();
+        if(!it||!Object.hasOwn(manualLabels,it.mod))return;
+        if(fromSelector&&!showManualChoice(it)){render();return;}
+        if(!participation&&state.store.manual[id]===undefined)return;
+        if(participation&&confirmed(it)){
+          render();
+          const select=nodes.get(id)?.querySelector('[data-manual-choice]');
+          if(select)select.value=choiceValue(state.store.manual[id]);
+          return;
         }
+        const value=participation?{participation,done:participation==='yes',t:Date.now()}:null;
+        await append([{type:'manual',key:id,value}]);
+        if(value)state.store.manual[id]=participation;
+        else delete state.store.manual[id];
+        render();
+        const control=nodes.get(id)?.querySelector('[data-manual-choice], [data-toggle]');
+        (control||ui('[data-tab][aria-selected="true"]:not([hidden])')||listBody.querySelector('.ugr-list')).focus();
       });
-      if(reset&&!id.startsWith('feedback:'))load();
     }catch{
-      const select=nodes.get(id)?.querySelector('[data-feedback-choice]');
-      if(select)select.value=state.store.manual[id]===undefined?'':state.store.manual[id]?'completed':'not_completed';
+      const select=nodes.get(id)?.querySelector('[data-manual-choice]');
+      if(select)select.value=choiceValue(state.store.manual[id]);
       fail('No se pudo guardar el estado manual.');
     }
   }
@@ -1319,7 +1364,7 @@
     const control=e.target.closest('[data-reverify]');
     if(control){load('one',control.dataset.reverify);return;}
     const toggle=e.target.closest('[data-toggle]');if(!toggle || stopped) return;
-    changeManual(toggle.dataset.toggle);
+    changeManual(toggle.dataset.toggle,'yes');
   });
   ui('[data-quick-filters]').addEventListener('keydown',e=>{
     if(e.key!=='Escape'||!ui('[data-quick-filter][aria-expanded="true"]'))return;
@@ -1330,14 +1375,13 @@
   panel.addEventListener('dblclick',e=>{
     if(!e.target.closest('.ugr-source') || stopped)return;
     const id=e.target.closest('li')?.dataset.id;
-    if(id && !/^(forum|feedback):/.test(id) && state.store.manual[id]!==undefined)changeManual(id,true);
+    if(id && !/^(forum|feedback):/.test(id) && state.store.manual[id]!==undefined)changeManual(id,'');
   });
   panel.addEventListener('change',e=>{
     const input=e.target;
-    if(input.matches('[data-feedback-choice]')){
+    if(input.matches('[data-manual-choice]')){
       const id=input.closest('li')?.dataset.id;
-      if(!stopped&&id?.startsWith('feedback:')&&['','completed','not_completed'].includes(input.value))
-        changeManual(id,input.value==='',input.value);
+      if(!stopped&&id&&['','yes','no'].includes(input.value))changeManual(id,input.value,true);
       return;
     }
     if(input===appearanceSelect){

@@ -21,13 +21,14 @@ async page => {
     .replace(/<main[\s\S]*?<\/main>/,'<main id="region-main">'+markup+'</main>');
   const finalGrade='<div class="generalbox feedback"><h3>Su calificación final en este cuestionario es 0,00/10,00.</h3></div>';
   const completedPage=cardPage(finalGrade+list(card(1,'Finalizado')));
-  let servedQuiz=quizPage;
+  let servedQuiz=quizPage, quizHttpError=false;
   await page.route(`${origin}/mod/quiz/startattempt.php*`, route => {
     started++;
     return route.abort();
   });
   await page.route(`${origin}/mod/quiz/view.php?id=2`, route => {
     reads.push(route.request().method());
+    if(quizHttpError)return route.fulfill({status:503,body:'Fixture 503'});
     return route.fulfill({contentType:'text/html; charset=utf-8', body:servedQuiz});
   });
   await page.addInitScript(()=>{
@@ -261,11 +262,7 @@ async page => {
   await page.getByRole('tab',{name:/^Entregadas/}).click();
   results.persistedCompletion=await quizRow.isVisible()&&(await quizRow.locator('.ugr-grade').textContent()).includes('0,00/10,00');
   servedQuiz=completedPage;
-  await quizRow.getByRole('button',{name:'Marcar como no entregada'}).click();
-  await page.getByRole('tab',{name:/^Pendientes/}).click();
-  await reverify();await settled();
-  results.manualPreserved=await quizRow.isVisible()&&
-    await quizRow.getByRole('button',{name:'Marcar como entregada'}).isVisible();
+  results.officialCompletionHidesManual=await quizRow.locator('[data-manual-choice], [data-toggle]').count()===0;
   const legacy=await page.context().newPage();
   await legacy.addInitScript(()=>{
     if(location.origin!=='http://127.0.0.1:8765'||sessionStorage.legacySeeded)return;
@@ -313,6 +310,39 @@ async page => {
     localStorage.fixture=JSON.stringify({['ugr2:'+location.origin+':42:presentation']:{schema:1,autoRefreshMinutes:0}});
   });
   const schedulePage=campusQuiz(formatDate(openAt),formatDate(closeAt));
+  const closedAt=Math.floor(Date.now()/60000)*60000-86400000;
+  const closedPage=campusQuiz(formatDate(closedAt-3600000),formatDate(closedAt))
+    .replace('Abre:','Abrió:').replace('Cierra:','Cerró:')
+    .replace(/<div class="activity-header"[\s\S]*?<div role="main">/,'<div class="activity-header"></div><div role="main">')
+    .replace('Intentos permitidos: 1</p>','Intentos permitidos: 1</p><p>Límite de tiempo: 1 hora</p>')
+    .replace('<p>Este cuestionario no está disponible en este momento</p>',
+      '<form method="get" action="/course/view.php"><input type="hidden" name="id" value="7">'+
+      '<button type="submit">Volver al curso</button></form>');
+  Object.assign(results,await page.evaluate(({origin,closedPage,closedAt,visibleAttempt,contradiction,futureClosure})=>{
+    const read=(html,close=null,cmid='2')=>{
+      const doc=new DOMParser().parseFromString(html,'text/html');
+      try{return UGCore.recognize(doc,'quiz','42',origin,cmid,close);}
+      catch(error){return {code:error.code};}
+    };
+    const closed=read(closedPage);
+    return {
+      closedWithoutCalendar:closed.done===false&&closed.absence==='quiz_closed_unknown'&&!closed.available,
+      closedCalendarAgrees:read(closedPage,closedAt).absence==='quiz_closed_unknown',
+      closedCalendarMismatch:read(closedPage,closedAt+60000).code==='SELECTOR_MISSING',
+      closedVisibleAttemptWins:read(closedPage.replace('</main>',visibleAttempt+'</main>')).done===true,
+      closedContradictoryDates:read(contradiction).code==='SELECTOR_MISSING',
+      closedFutureDates:read(futureClosure).code==='SELECTOR_MISSING',
+      closedWrongActivity:read(closedPage.replace('data-activityname="Cuestionario de prueba"','data-activityname="Otra actividad"')).code==='SELECTOR_MISSING',
+      closedWrongModule:read(closedPage,null,'3').code==='SELECTOR_MISSING',
+      closedOtherRestriction:read(closedPage.replace('</main>','<div class="quizattempt"><p>Acceso restringido</p></div></main>')).absence==='quiz_unavailable',
+      closedUnknownRestriction:read(closedPage.replace('</form>','</form><p>Grupo obligatorio</p>')).code==='SELECTOR_MISSING',
+      closedForeignReturn:read(closedPage.replace('/course/view.php','https://example.test/course/view.php')).code==='SELECTOR_MISSING',
+      closedReviewLink:read(closedPage.replace('</main>','<a href="/mod/quiz/review.php?attempt=6">Revisión</a></main>')).code==='SELECTOR_MISSING',
+      closedMixedDateLabels:read(closedPage.replace('Cerró:','Cierra:')).code==='SELECTOR_MISSING',
+    };
+  },{origin,closedPage,closedAt,visibleAttempt:list(card(1,'Finalizado')),
+    contradiction:closedPage.replace(formatDate(closedAt-3600000),formatDate(closedAt+60000)),
+    futureClosure:closedPage.replace(formatDate(closedAt),formatDate(closeAt))}));
   servedQuiz=schedulePage;
   await page.goto(origin);
   await settled();
@@ -336,6 +366,89 @@ async page => {
   servedQuiz=schedulePage;
   await reverify();await settled();
   results.schedulePreservesCompletion=await quizRow.isVisible()&&await quizRow.locator('.ugr-grade').count()===1;
+  await page.unroute(origin+'/lib/ajax/service.php?*');
+  await page.route(origin+'/lib/ajax/service.php?*',async route=>{
+    const response=await route.fetch(), data=await response.json();
+    for(const week of data[0].data.weeks)for(const day of week.days)for(const event of day.events){
+      if(event.modulename==='quiz')event.timesort=closedAt/1000;
+    }
+    await route.fulfill({response,json:data});
+  });
+  await page.evaluate(()=>{
+    localStorage.fixture=JSON.stringify({['ugr2:'+location.origin+':42:presentation']:{schema:1,autoRefreshMinutes:0}});
+  });
+  servedQuiz=closedPage;
+  await page.goto(origin);await settled();
+  await page.getByRole('tab',{name:/^Sin verificar/}).click();
+  const closedReport=await diagnostics();
+  results.closedInPanel=await quizRow.locator('.ugr-source').textContent()==='Cuestionario cerrado · Participación sin confirmar'&&
+    closedReport.lastRun.recognizedAbsences.quiz_closed_unknown===1&&closedReport.lastRun.activityErrors===0&&closedReport.activeFailures.length===0;
+  const counter=category=>page.locator('[data-tab="'+category+'"] span').textContent().then(Number);
+  const pendingBefore=await counter('pendientes'), unknownBefore=await counter('desconocidas');
+  await page.getByRole('tab',{name:/^Pendientes/}).click();
+  results.closedAlsoPending=await quizRow.count()===1;
+  await page.getByRole('tab',{name:/^Atrasadas/}).click();
+  results.closedNotOverdue=await quizRow.count()===0;
+  await page.getByRole('tab',{name:/^Sin verificar/}).click();
+  quizHttpError=true;
+  await reverify();await settled();
+  results.closedErrorDropsPending=await counter('pendientes')===pendingBefore-1&&
+    await counter('desconocidas')===unknownBefore&&(await diagnostics()).activeFailures.some(f=>f.code==='HTTP');
+  quizHttpError=false;
+  const beforeClosedRead=reads.length;
+  await reverify();await settled();
+  results.closedSingleGet=reads.length===beforeClosedRead+1&&reads.at(-1)==='GET';
+  await page.reload();await settled();
+  await page.getByRole('tab',{name:/^Sin verificar/}).click();
+  results.closedPersisted=await quizRow.locator('.ugr-source').textContent()==='Cuestionario cerrado · Participación sin confirmar'&&
+    await counter('pendientes')===pendingBefore;
+  const declaration=quizRow.getByRole('combobox',{name:/Realización · declaración manual/});
+  for(const [width,appearance] of [[320,'light'],[360,'dark'],[320,'auto']]){
+    await page.setViewportSize({width,height:720});
+    await page.locator('[data-personalize]').click();
+    await page.locator('[data-appearance]').selectOption(appearance);
+    await page.locator('[data-personalize]').click();
+    if(appearance==='auto')await page.evaluate(()=>Object.assign(document.documentElement.dataset,{darkreaderMode:'dynamic',darkreaderScheme:'dark'}));
+    await declaration.focus();
+    results['manualLayout_'+appearance]=await declaration.evaluate(node=>{
+      const box=node.getBoundingClientRect(), row=node.closest('li').getBoundingClientRect();
+      const style=getComputedStyle(node);
+      return node===document.activeElement&&box.width>0&&box.left>=row.left&&box.right<=row.right+1&&box.right<=innerWidth&&
+        style.color!==style.backgroundColor;
+    });
+  }
+  await page.setViewportSize({width:1024,height:720});
+  const countRequests=()=>page.locator('#ugr-panel').getAttribute('data-metrics').then(json=>JSON.parse(json).requests);
+  const beforeDeclarations=await countRequests();
+  await declaration.selectOption('yes');
+  await page.getByRole('tab',{name:/^Entregadas/}).click();
+  results.closedManuallyCompleted=await declaration.inputValue()==='yes'&&await quizRow.locator('.ugr-grade').count()===0;
+  results.closedPositiveCounters=await counter('pendientes')===pendingBefore-1&&await counter('desconocidas')===unknownBefore-1;
+  await declaration.selectOption('no');
+  await page.getByRole('tab',{name:/^Atrasadas/}).click();
+  results.closedManuallyIncomplete=await declaration.inputValue()==='no';
+  await page.getByRole('tab',{name:/^Pendientes/}).click();
+  results.closedNegativePending=await quizRow.isVisible();
+  await declaration.selectOption('yes');
+  await page.getByRole('tab',{name:/^Entregadas/}).click();
+  await declaration.selectOption('');
+  await page.getByRole('tab',{name:/^Sin verificar/}).click();
+  results.closedWithdrawsLocally=await declaration.inputValue()===''&&await countRequests()===beforeDeclarations&&
+    await quizRow.locator('.ugr-source').textContent()==='Cuestionario cerrado · Participación sin confirmar';
+  results.closedRestoredCounters=await counter('pendientes')===pendingBefore&&await counter('desconocidas')===unknownBefore;
+  await declaration.selectOption('no');
+  await page.getByRole('tab',{name:/^Pendientes/}).click();
+  servedQuiz=completedPage;
+  await reverify();await settled();
+  await page.getByRole('tab',{name:/^Entregadas/}).click();
+  results.officialCompletionOverridesNegative=await declaration.inputValue()==='no'&&
+    await quizRow.locator('.ugr-source').textContent()==='Entrega confirmada por Moodle · Contradice la declaración manual';
+  servedQuiz=closedPage;
+  await reverify();await settled();
+  results.closedPreservesCompletionAndGrade=await quizRow.isVisible()&&await quizRow.locator('.ugr-grade').textContent()==='Calificación: 0,00/10,00';
+  await declaration.selectOption('');
+  results.closedWithdrawalPreservesOfficial=await quizRow.isVisible()&&await declaration.count()===0&&
+    await quizRow.locator('.ugr-grade').textContent()==='Calificación: 0,00/10,00';
   results.noStartRequests=started===0;
   const failed=Object.keys(results).filter(name=>!results[name]);
   if(failed.length)throw new Error(failed.join(', '));

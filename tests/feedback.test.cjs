@@ -14,7 +14,7 @@ test('Las marcas antiguas positivas se conservan y las negativas requieren una d
       {type:'manual',key:'feedback:4',value:{participation:'completed',done:true}},
       {type:'manual',key:'feedback:4',value:null}
     ]}};
-  assert.deepEqual(C.readState(data,'p:',origin).manual,{'assign:1':false,'feedback:3':false});
+  assert.deepEqual(C.readState(data,'p:',origin).manual,{'assign:1':false,'feedback:3':'no'});
   assert.equal(data['p:manual:feedback:1'].done,true);
 });
 
