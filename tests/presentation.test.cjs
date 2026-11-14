@@ -1,10 +1,12 @@
 'use strict';
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {presentation,presentationList,titleLimit}=require('../core');
+const {presentation,presentationList,titleLimit,categories,dateRange,dateBounds,filterPresentationRows}=require('../core');
+const allTypes=['assign','quiz','forum','feedback'];
 
 test('Preferencias por defecto con ausencia, esquema futuro o tipos inválidos',()=>{
   const defaults={schema:1,position:'hidden',mode:'tabs',categories:['proximas'],
+    visibleTabs:categories,activityTypes:allTypes,dateRange:null,
     title:'Mis actividades · Campus UG Revamp',size:'normal',limit:null,course:'all',autoRefreshMinutes:10,appearance:'auto'};
   assert.deepEqual(presentation(),defaults);
   assert.deepEqual(presentation({schema:2,title:'Futuro'}),defaults);
@@ -25,9 +27,42 @@ test('Acepta una selección vacía y valida valores persistidos sin modificar el
   const raw={schema:1,position:'bottom',mode:'custom',categories:['pendientes','invalida','pendientes','proximas'],
     title:'x'.repeat(120),size:'wide',limit:30,course:'7',irrelevant:'legacy'};
   assert.deepEqual(presentation(raw),{schema:1,position:'bottom',mode:'custom',categories:['proximas','pendientes'],
+    visibleTabs:categories,activityTypes:allTypes,dateRange:null,
     title:'x'.repeat(titleLimit),size:'wide',limit:30,course:'7',autoRefreshMinutes:10,appearance:'auto'});
   assert.equal(raw.categories.length,4);
   assert.deepEqual(presentation({...raw,categories:[]}).categories,[]);
+});
+
+test('Fecha usa días locales inclusivos y meses naturales con ajuste de fin de mes',()=>{
+  const now=new Date(2028,0,31,19);
+  const seconds=(month,day)=>new Date(2028,month,day).getTime()/1000;
+  assert.deepEqual(dateBounds({preset:'next-week'},now),{start:seconds(0,31),end:seconds(1,8)});
+  assert.deepEqual(dateBounds({preset:'next-month'},now),{start:seconds(0,31),end:seconds(2,1)});
+  assert.deepEqual(dateBounds({preset:'last-week'},now),{start:seconds(0,24),end:seconds(1,1)});
+  assert.deepEqual(dateBounds({preset:'last-month'},now),{start:seconds(-1,31),end:seconds(1,1)});
+  assert.equal(dateBounds({preset:'next-week'},new Date(2028,1,1)).start,seconds(1,1));
+  assert.deepEqual(dateBounds({preset:'next-month'},new Date(2028,11,31)),{start:seconds(11,31),end:seconds(13,1)});
+});
+
+test('Rangos manuales abiertos, fechas inválidas y actividades sin vencimiento',()=>{
+  assert.equal(dateRange({from:'2026-11-18',to:'2026-11-17'}),null);
+  assert.equal(dateRange({from:'2026-02-29'}),null);
+  assert.equal(dateBounds(dateRange({from:'2026-11-13'})).end,Infinity);
+  assert.equal(dateBounds(dateRange({to:'2026-11-13'})).start,-Infinity);
+  const bounds=dateBounds(dateRange({from:'2026-11-13',to:'2026-11-13'}));
+  const rows=[bounds.start-1,bounds.start,bounds.end-1,bounds.end,null].map(due=>({it:{mod:'assign',due}}));
+  assert.deepEqual(filterPresentationRows(rows,['assign'],bounds),rows.slice(1,3));
+  assert.deepEqual(filterPresentationRows(rows,['assign'],null),rows);
+  assert.deepEqual(presentation({schema:1,dateRange:{preset:'last-month'}}).dateRange,{preset:'last-month'});
+});
+
+test('Las pestañas y los tipos conservan selecciones independientes, incluso vacías',()=>{
+  const saved=presentation({schema:1,mode:'tabs',categories:['pendientes'],visibleTabs:[],
+    activityTypes:['feedback','assign','forum','feedback','invalid']});
+  assert.deepEqual(saved.visibleTabs,[]);
+  assert.deepEqual(saved.categories,['pendientes']);
+  assert.deepEqual(saved.activityTypes,['assign','forum','feedback']);
+  assert.deepEqual(presentation({...saved,activityTypes:[]}).activityTypes,[]);
 });
 
 test('La frecuencia automática valida intervalos y conserva la opción desactivada',()=>{

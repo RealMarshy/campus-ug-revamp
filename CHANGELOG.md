@@ -2,6 +2,18 @@
 
 Este historial resume las versiones de Revamp, derivado de [Panel de Tareas UG](https://github.com/danieIabel/campus-ug).
 
+## 2.4.0 — The Daniel Update
+
+- Añade un filtro visual por vencimiento con dos calendarios y cuatro rangos relativos, combinable con las categorías, tipos y cursos.
+
+- Añade accesos rápidos a Categorías y Tipos de actividad en el panel principal, sincronizados con Personalizar.
+
+- Permite elegir las pestañas rápidas visibles y filtrar por tipo de actividad en ambas vistas.
+- Renombra Filtros personalizados a Lista simple (Antiguo) y organiza los controles en dos recuadros.
+- Permite desactivar un rango rápido al volver a pulsarlo, con los demás filtros conservados.
+- Reconoce intentos finalizados en las tarjetas de Moove, primeros intentos disponibles y aperturas futuras verificadas en el encabezado de Moodle UG. Una apertura programada queda en Próximas y Pendientes sin inferir la participación.
+- Distingue tareas disponibles para agregar una entrega y tareas bloqueadas por falta de grupo. Conserva la calificación explícita de tareas evaluadas sin envío registrado y muestra la nota final del cuestionario cuando se puede verificar.
+
 ## 2.3.0
 
 - Descubre encuestas a partir de eventos de apertura y cierre. Comprueba su estado en la vista principal y conserva las confirmaciones y marcas manuales.

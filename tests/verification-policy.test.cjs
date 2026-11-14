@@ -42,3 +42,25 @@ test('lista de rutas admite solo lectura y el POST de calendario',()=>{
  assert.equal(allowed('/mod/assign/view.php?id=2',{method:'POST',body:'fake'}),false);
  assert.equal(C.allowsRequest('https://external.example/my/',{},origin),false);
 });
+
+test('recuperación de revisión de selector limitada a la huella anterior a Moove',()=>{
+ const details={identity:'match',pageView:'view',hasMain:true,mainBusy:false,attemptRows:0,attemptSummaries:0,quizStart:'missing'};
+ const failure={code:'SELECTOR_MISSING',details};
+ assert.equal(C.selectorUpgrade(quiz,failure),true);
+ assert.equal(C.selectorUpgrade(quiz,failure,{quizSelectorRevision:1}),false);
+ assert.equal(C.selectorUpgrade(quiz,{...failure,code:'HTTP'}),false);
+ assert.equal(C.selectorUpgrade(quiz,{...failure,details:{...details,attemptCardLists:1}}),false);
+ assert.equal(C.selectorUpgrade({...quiz,mod:'assign'},failure),false);
+});
+
+test('una apertura confirmada revalida en el siguiente ciclo aun con TTL vigente',()=>{
+ const openAt=now+60000;
+ const pending={done:false,source:'moodle',t:now,absence:'quiz_not_yet_open',quizOpenAt:openAt};
+ const data=C.clean({schema:2,auto:{'quiz:2':pending}},origin,now);
+ assert.deepEqual(data.auto['quiz:2'],pending);
+ const decision=extra=>C.verificationDecision({item:quiz,status:pending,now,...extra});
+ assert.equal(decision({}),'cache');
+ assert.equal(decision({now:openAt}),'check');
+ assert.equal(decision({now:openAt,manual:false}),'manual');
+ assert.equal(decision({now:openAt,failure:{retryAt:openAt+1}}),'backoff');
+});

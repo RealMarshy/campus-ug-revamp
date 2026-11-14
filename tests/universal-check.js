@@ -4,6 +4,7 @@ async (page, baseline=false)=>{
   const valid=identity+'<div class="submissionstatussubmitted">Enviado</div>';
   const login='<body id="page-login-index"><form id="login"></form></body>';
   const calls=new Map(), held=[];
+  const dueBase=Math.floor(Date.now()/1000)+3600;
   let faults={}, requests=0, calendar=0, passed=0, activityCount=46, pendingTimeout;
   const check=(ok,label)=>{if(!ok)throw Error(label);passed++;};
   const warning=page.locator('[data-minimal-warning]');
@@ -32,7 +33,7 @@ async (page, baseline=false)=>{
     requests++;calendar++;
     const now=new Date(), events=call.args.month===now.getMonth()+1?Array.from({length:activityCount},(_,i)=>{
       const id=i+1, mod=activityCount===46&&id>42?'forum':'assign';
-      return {id,name:'Actividad ficticia '+id,modulename:mod,eventtype:'due',timesort:Math.floor(Date.now()/1000)+3600+id,
+      return {id,name:'Actividad ficticia '+id,modulename:mod,eventtype:'due',timesort:dueBase+id,
         url:origin+'/mod/'+mod+'/view.php?id='+id,course:{id:1,fullname:'Curso ficticio'}};
     }):[];
     return route.fulfill({json:[{data:{weeks:[{days:[{events}]}]}}]});

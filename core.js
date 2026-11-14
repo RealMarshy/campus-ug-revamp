@@ -66,9 +66,13 @@
       const source = ['moodle','heuristic'].includes(s.source) ? s.source : 'unknown';
       const t = Number.isFinite(s.t) && s.t<=now ? s.t : 0;
       const absence=!s.done&&source==='moodle'&&key.startsWith('quiz:')&&
-        ['quiz_no_attempts','quiz_unavailable'].includes(s.absence)?s.absence:null;
-      out.auto[key] = {done:s.done,t,source,...(s.recheck ? {recheck:true} : {}),...(absence?{absence}:{}),
-        ...(absence==='quiz_no_attempts'&&s.available===true?{available:true}:{}),
+        ['quiz_no_attempts','quiz_unavailable','quiz_not_yet_open','quiz_scheduled'].includes(s.absence)?s.absence:null;
+      const quizOpenAt=['quiz_not_yet_open','quiz_scheduled'].includes(absence)&&calendarTime(s.quizOpenAt)?s.quizOpenAt:null;
+      const evaluationGrade=!s.done&&source==='moodle'&&key.startsWith('assign:')?gradeText(s.evaluationGrade):null;
+      const assignAvailability=!s.done&&source==='moodle'&&key.startsWith('assign:')&&
+        ['group_blocked','add_submission'].includes(s.assignAvailability)?s.assignAvailability:null;
+      out.auto[key] = {done:s.done,t,source,...(s.recheck ? {recheck:true} : {}),...(absence?{absence}:{}),...(quizOpenAt?{quizOpenAt}:{}),...(evaluationGrade?{evaluationGrade}:{}),
+        ...(assignAvailability?{assignAvailability}:{}),...(absence==='quiz_no_attempts'&&s.available===true?{available:true}:{}),
         ...(key.startsWith('feedback:')&&source==='moodle'&&!s.done&&feedbackStates.includes(s.feedbackState)?{feedbackState:s.feedbackState}:{})};
     }
     out.updated = Number(raw.updated) || 0;
@@ -81,6 +85,14 @@
     if (force && !s.done) return true;
     return now-s.t >= (s.done ? CONFIG.completed : CONFIG.pending);
   }
+  function selectorUpgrade(item,failure,stamp) {
+    const evidence=failure?.details;
+    return item.mod==='quiz'&&stamp?.quizSelectorRevision!==1&&failure?.code==='SELECTOR_MISSING'&&
+      evidence?.identity==='match'&&evidence.pageView==='view'&&evidence.hasMain===true&&evidence.mainBusy===false&&
+      evidence.attemptRows===0&&evidence.attemptSummaries===0&&evidence.quizStart==='missing'&&
+      evidence.attemptCardLists===undefined;
+  }
+
   function verificationDecision({item,status,manual,failure,stamp,closeAt=null,mode='normal',now=Date.now()}) {
     if(!['assign','quiz','feedback'].includes(item.mod))return 'manual';
     if(mode==='all'||mode==='one')return 'check';
@@ -90,6 +102,7 @@
     const verified=stamp?.stateAt===status.t ? stamp : null;
     const last=verified?.t??status.t;
     if((status.recheck && !verified) || item.synced>last || (verified?.closedAt && verified.closedAt!==closeAt))return 'check';
+    if(status.quizOpenAt&&last<status.quizOpenAt&&now>=status.quizOpenAt)return 'check';
     if(closeAt && verified?.closedAt===closeAt && last>closeAt && now-last<CONFIG.archiveProbe)return 'archive';
     return now-last>=(status.done?CONFIG.completed:CONFIG.pending)?'check':'cache';
   }
@@ -150,7 +163,7 @@
   function safeDetails(value={}) {
     if(!value || typeof value!=='object')return {};
     const out={};
-    for(const k of ['http','statusNodes','attemptRows','attemptSummaries','forumContainers','forumAuthors','concurrency']) if(Number.isInteger(value[k])&&value[k]>=0&&value[k]<=9999)out[k]=value[k];
+    for(const k of ['http','statusNodes','attemptRows','attemptSummaries','attemptCardLists','attemptCardStates','forumContainers','forumAuthors','concurrency']) if(Number.isInteger(value[k])&&value[k]>=0&&value[k]<=9999)out[k]=value[k];
     for(const k of ['elapsedMs','headersMs','timeoutMs','retryAfterMs']) if(Number.isInteger(value[k])&&value[k]>=0&&value[k]<=86400000)out[k]=value[k];
     for(const k of ['hasMain','hasFooter','mainBusy','retryAfterBlocked']) if(typeof value[k]==='boolean')out[k]=value[k];
     if(['headers','body'].includes(value.phase))out.phase=value.phase;
@@ -366,7 +379,143 @@
     return gradeText(normalize(cell.textContent));
   }
 
-  function recognize(doc, mod, userId, origin, cmid) {
+  function assignmentAvailability(main,origin,cmid,normalize,trace) {
+    const excluded='.activity-description, #intro, .intro, aside, nav, footer';
+    const shortNotice=/^(?:Not a member of any group|No es miembro de ningún grupo|No perteneces? a ningún grupo)\.?$/i;
+    const description=/^(?:This assignment requires submission in groups\. You are not a member of any group, so you cannot create a submission\.|Esta tarea requiere entrega por grupos\. Usted no es miem(?:br|pr)o de ningún grupo, así que no puede realizar entregas\.|Esta tarea requiere envío en grupos\. Usted no es miembro de ningún grupo, por lo que no puede crear un envío\.?)(?:$| (?:Please contact your teacher|Por favor, (?:contacte|póngase en contacto) con su profesor)\b)/i;
+    if(trace)trace.groupNotice='missing';
+    for(const node of main.querySelectorAll('.submissionstatustable .alert, .submissionstatustable .teamname')){
+      if(hiddenEvidence(node)||node.closest(excluded))continue;
+      const message=node.cloneNode(true);
+      message.querySelectorAll('button[data-dismiss="alert"], button[data-bs-dismiss="alert"]').forEach(button=>button.remove());
+      const value=normalize(message.textContent);
+      const evidence=shortNotice.test(value)?'short':node.matches('.alert')&&description.test(value)?'description':'unrecognized';
+      if(trace)trace.groupNotice=evidence;
+      if(evidence!=='unrecognized')return 'group_blocked';
+    }
+    const add=[...main.querySelectorAll('button[type="submit"], input[type="submit"]')].some(control=>{
+      if(!/^(Add submission|Agregar entrega|Añadir entrega)$/i.test(normalize(control.value||control.textContent))||
+        hiddenEvidence(control)||control.matches(':disabled')||control.closest(excluded+', [aria-disabled="true"], .disabled')||
+        control.hasAttribute('formaction')||control.hasAttribute('formmethod'))return false;
+      const form=control.form;
+      if(!form||form.method!=='get'||!main.contains(form)||hiddenEvidence(form)||form.closest(excluded))return false;
+      try{
+        const url=new URL(form.getAttribute('action'),origin);
+        if(url.origin!==origin||url.pathname!=='/mod/assign/view.php'||url.search||url.hash||url.username||url.password)return false;
+        const fields=[...form.elements].filter(field=>field.name&&!field.matches(':disabled'));
+        return fields.length===2&&fields.every(field=>field.matches('input[type="hidden"]'))&&
+          fields.some(field=>field.name==='id'&&field.value===cmid)&&
+          fields.some(field=>field.name==='action'&&field.value==='editsubmission');
+      }catch{return false;}
+    });
+    return add?'add_submission':undefined;
+  }
+
+  function assignmentEvaluation(main,normalize,evidence) {
+    // Moodle renders the grade and its date together in the feedback table.
+    const tables=[...main.querySelectorAll('.feedback .feedbacktable table, .feedback table.feedbacktable')].filter(table=>
+      !hiddenEvidence(table)&&!table.closest('#intro, .intro, .activity-description, .submissionstatustable, nav, aside, form'));
+    const reports=tables.map(table=>{
+      const rows=[...table.rows].filter(row=>row.cells.length===2&&!hiddenEvidence(row)&&
+        ![...row.cells].some(cell=>hiddenEvidence(cell)||[...cell.querySelectorAll('*')].some(hiddenEvidence)));
+      const gradeRows=rows.filter(row=>/^(Grade|Calificación)$/i.test(normalize(row.cells[0].textContent)));
+      const dates=rows.filter(row=>/^(Graded on|Calificado sobre)$/i.test(normalize(row.cells[0].textContent)));
+      if(!gradeRows.length)return null;
+      if(gradeRows.length!==1)return false;
+      const text=normalize(gradeRows[0].cells[1].textContent);
+      if(!text||/^[-–—]$/.test(text))return null;
+      const grade=gradeText(text);
+      return grade&&dates.length===1&&/\d/.test(normalize(dates[0].cells[1].textContent))?grade:false;
+    }).filter(value=>value!==null);
+    if(reports.length>1||reports[0]===false)throw problem('STATE_UNKNOWN',evidence);
+    return reports[0];
+  }
+
+  function mooveQuizStates(list,normalize) {
+    const headings=new Set();
+    const cards=[];
+    // Moove overrides the quiz templates with a dedicated list and paired status fields.
+    for(const wrapper of list.children){
+      const card=wrapper.querySelector(':scope > .rounded.border');
+      const title=card?.querySelector(':scope > h4.card-title');
+      if(!title||hiddenEvidence(title))continue;
+      const name=normalize(title.textContent).toLowerCase();
+      if(!/^(Intento|Attempt) [1-9]\d*$/i.test(name))continue;
+      if(headings.has(name))return [];
+      headings.add(name);
+      const fields=card.querySelectorAll(':scope > .moove-summary-table.quizreviewsummary > .moove-quizreviewsummary > .moove-infobox');
+      const entries=[...fields].filter(field=>[...field.children].some(label=>
+        label.matches('.moove-infobox-title')&&/^(Estado|State|Status)$/i.test(normalize(label.textContent))));
+      if(entries.length!==1)continue;
+      const [label,value]=entries[0].children;
+      if(entries[0].children.length!==2||!label.matches('h5.moove-infobox-title')||
+        !value.matches('.moove-infobox-content--small')||[label,value].some(hiddenEvidence)||
+        [...label.querySelectorAll('*'),...value.querySelectorAll('*')].some(hiddenEvidence))continue;
+      cards.push(normalize(value.textContent));
+    }
+    return cards;
+  }
+
+  const quizMonths='enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre'.split(' ');
+  function quizSchedule(doc,cmid,normalize,expectedCloseAt,trace) {
+    const moduleMatches=positiveId(cmid)&&[...doc.body.classList].filter(c=>c.startsWith('cmid-')).join(' ')==='cmid-'+cmid;
+    if(trace)trace.moduleMatches=moduleMatches;
+    if(!moduleMatches&&!trace)return null;
+    const campusBlock='header#page-header [data-region="header-extras-container"] .header-extra [data-activityname] > [data-region="activity-dates"]';
+    const standardBlock=':is([data-for="page-activity-header"], .activity-header, [data-region="activity-information"]) [data-region="activity-dates"]';
+    const blocks=[...doc.querySelectorAll(standardBlock+', '+campusBlock)].filter(n=>
+      !hiddenEvidence(n)&&!n.closest('.activity-description, #intro, .description, aside, nav, footer, form'));
+    if(trace)trace.header=blocks.length===1?'found':blocks.length?'multiple':'missing';
+    if(blocks.length!==1)return null;
+    if(trace)trace.headerLocation=doc.querySelector('#region-main')?.contains(blocks[0])?'inside_main':'outside_main';
+    const block=blocks[0], campus=block.matches(campusBlock);
+    if(campus){
+      const titles=[...block.closest('header#page-header').querySelectorAll('.page-header-headings h1')].filter(n=>!hiddenEvidence(n));
+      const title=normalize(titles[0]?.textContent??'');
+      if(titles.length!==1||!title||title!==normalize(block.parentElement.getAttribute('data-activityname'))){
+        if(trace)trace.header='activity_mismatch';
+        return null;
+      }
+    }
+    const labelSelector=campus?':scope > .date-item > span.date-item-label':'strong';
+    const dates={}, seen=new Set();
+    let invalid=false;
+    if(trace){trace.opening='missing';trace.closing='missing';}
+    for(const label of block.querySelectorAll(labelSelector)){
+      if(hiddenEvidence(label))continue;
+      const name=normalize(label.textContent).toLowerCase();
+      if(!['abre:','cierra:'].includes(name))continue;
+      const row=label.parentElement;
+      const field=name==='abre:'?'opening':'closing';
+      if(trace)trace[field]=seen.has(name)?'duplicate':'invalid';
+      if(seen.has(name)||row===blocks[0]||row.querySelectorAll(campus?'span.date-item-label':'strong').length!==1||
+        [...row.querySelectorAll('*')].some(hiddenEvidence)){invalid=true;seen.add(name);continue;}
+      seen.add(name);
+      const value=campus?normalize([...row.childNodes].filter(node=>node.nodeType===3).map(node=>node.textContent).join(' ')):
+        normalize(row.textContent).slice(name.length).trim();
+      if(campus&&(row.children.length!==1||row.firstElementChild!==label)){invalid=true;continue;}
+      const parts=value.match(/^(?:lunes|martes|miércoles|jueves|viernes|sábado|domingo), (\d{1,2}) de ([a-z]+) de (\d{4}), (\d{1,2}):(\d{2})$/i);
+      if(!parts){invalid=true;continue;}
+      const [,day,month,year,hour,minute]=parts;
+      const monthIndex=quizMonths.indexOf(month.toLowerCase());
+      // Accept the localized text only when the close minute agrees with the campus calendar in Ecuador.
+      const wall=new Date(Date.UTC(+year,monthIndex,+day,+hour,+minute));
+      if(+year<2000||monthIndex<0||wall.getUTCMonth()!==monthIndex||wall.getUTCDate()!==+day||
+        +hour>23||+minute>59||!value.toLowerCase().startsWith(wall.toLocaleDateString('es-EC',{weekday:'long',timeZone:'UTC'})+',')){invalid=true;continue;}
+      dates[name]=wall.getTime()+5*3600e3;
+      if(trace)trace[field]=field==='opening'?(dates[name]>Date.now()?'future':'elapsed'):'valid';
+    }
+    const openAt=dates['abre:'],closeAt=dates['cierra:'];
+    const ordered=openAt<closeAt;
+    const matches=Math.floor(expectedCloseAt/60000)*60000===closeAt;
+    if(trace){
+      trace.dateOrder=openAt&&closeAt?(ordered?'valid':'invalid'):'unknown';
+      trace.calendarClose=expectedCloseAt==null?'missing':!closeAt?'unknown':matches?'match':'mismatch';
+    }
+    return !invalid&&moduleMatches&&ordered&&matches?{openAt}:null;
+  }
+
+  function recognize(doc, mod, userId, origin, cmid, expectedCloseAt, traceActivity=false) {
     checkIdentity(doc,userId);
     const normalize=s=>s.replace(/\s+/g,' ').trim();
     const main=doc.querySelector('#region-main, main, [role="main"]');
@@ -377,7 +526,7 @@
     else if(bodyId.startsWith('page-'))pageView='other';
     const evidence={identity:'match',pageView,hasMain:!!main,hasFooter:!!doc.querySelector('#page-footer'),mainBusy:!!main?.matches('[aria-busy="true"]')};
     if(pageView==='subview'||pageView==='other')throw problem('VIEW_MISMATCH',evidence);
-    let done,absence,grade,available;
+    let done,absence,grade,available,evaluationGrade,quizOpenAt,quizOpening,assignAvailability,assignGroup;
     if(mod==='assign') {
       const nodes=[...doc.querySelectorAll('.submissionstatussubmitted, .submissionstatusnew, .submissionstatusdraft, .submissionstatusreopened, .submissionstatus')];
       for(const row of doc.querySelectorAll('.submissionstatustable tr')) {
@@ -395,6 +544,23 @@
       if(!values.length||new Set(values).size!==1)throw problem('STATE_UNKNOWN',evidence);
       done=values[0];
       if(done&&pageView==='view'&&main&&!evidence.mainBusy)grade=assignmentGrade(main,normalize);
+      const ready=pageView==='view'&&main&&!main.closest('[aria-busy="true"]');
+      const moduleMatches=!!positiveId(cmid)&&[...doc.body.classList].filter(name=>name.startsWith('cmid-')).join(' ')==='cmid-'+cmid;
+      if(traceActivity)assignGroup={view:pageView,hasMain:!!main,moduleMatches,eligible:!!(ready&&moduleMatches&&!done),
+        hasStatusTable:!!main?.querySelector('.submissionstatustable'),groupNotice:'not_checked',state:done?'submitted':'no_submission'};
+      if(!done&&ready){
+        if(moduleMatches)assignAvailability=assignmentAvailability(main,origin,cmid,normalize,assignGroup);
+        const submissionRows=[...main.querySelectorAll('.submissionstatustable tr')].filter(row=>row.cells.length===2&&
+          /^(Submission status|Estado de la entrega|Estado de entrega)$/i.test(normalize(row.cells[0].textContent))&&
+          !hiddenEvidence(row)&&[...row.cells].every(cell=>!hiddenEvidence(cell)&&![...cell.querySelectorAll('*')].some(hiddenEvidence)));
+        if(submissionRows.length===1&&/^(Todavía no se han realizado envíos|No submissions have been made yet|Nothing has been submitted for this assignment|No attempt|Sin entrega|No entregado)\.?$/i.test(normalize(submissionRows[0].cells[1].textContent))) {
+          evaluationGrade=assignmentEvaluation(main,normalize,evidence);
+          if(evaluationGrade&&(!/^[1-9]\d*$/.test(cmid||'')||
+            [...doc.body.classList].filter(name=>name.startsWith('cmid-')).join(' ')!=='cmid-'+cmid))
+            throw problem('VIEW_MISMATCH',evidence);
+        }
+      }
+      if(assignGroup)assignGroup.result=evaluationGrade?'graded_without_submission':assignAvailability??'none';
     }else if(mod==='quiz') {
       const table=doc.querySelector('table.quizattemptsummary');
       const rows=table?[...table.querySelectorAll('tbody tr')]:[];evidence.attemptRows=rows.length;
@@ -407,6 +573,19 @@
       states.push(...statusRows.map(r=>normalize(r.querySelector('td')?.textContent||'')));
       evidence.attemptRows+=statusRows.length;
       evidence.attemptSummaries=summaries.length;
+      const quizMain=doc.querySelector('#region-main')||main;
+      const lists=[...quizMain?.querySelectorAll('.moove-attempts-list')??[]];
+      if(lists.length){
+        evidence.attemptCardLists=lists.length;
+        const ids=[...doc.body.classList].filter(name=>name.startsWith('cmid-'));
+        if(pageView==='view'&&/^[1-9]\d*$/.test(cmid||'')&&ids.length===1&&ids[0]==='cmid-'+cmid&&
+          !quizMain.closest('[aria-busy="true"]')&&lists.length===1&&!hiddenEvidence(lists[0])&&
+          !lists[0].closest('.activity-description, .description, .intro, #intro, .quizteacherfeedback, .quizgradefeedback, nav, aside, form')){
+          const cardStates=mooveQuizStates(lists[0],normalize);
+          evidence.attemptCardStates=cardStates.length;
+          states.push(...cardStates);
+        }
+      }
       if(states.some(t=>/^(Finalizado|Finalizados|Finished|Terminados|Terminado)$/i.test(t)))done=true;
       else if(states.some(t=>/^(En curso|In progress|Nunca enviado|Never submitted|Vencido|Overdue)$/i.test(t)))done=false;
       else {
@@ -450,18 +629,85 @@
         evidence.quizStart=quizStart;
         const explicitAbsence=noAttempts && quizStart==='missing';
         available=pageView==='view'&&quizStart==='first'&&!restriction&&!ambiguousNotice;
-        if(!table&&!summaries.length&&!hasAttemptLink&&!evidence.mainBusy&&
+        if(!table&&!summaries.length&&!lists.length&&!hasAttemptLink&&!evidence.mainBusy&&
             (restriction||explicitAbsence||available)){
           done=false;
-          absence=restriction?'quiz_unavailable':'quiz_no_attempts';
-        }else throw problem(table||summaries.length?'STATE_UNKNOWN':'SELECTOR_MISSING',evidence);
+          const temporal=/^(?:This quiz is currently not available|(?:Este|El) cuestionario no está disponible en este momento|This quiz is not yet open|(?:Este|El) cuestionario aún no está abierto)\.?$/i;
+          const temporalNotice=notices.some(n=>n.closest('.quizattempt')&&temporal.test(normalize(n.textContent)));
+          const conflictingNotice=[...main?.querySelectorAll('.availabilityinfo, .quizattempt p, .quizattempt .alert, .quizinfo .alert')??[]]
+            .some(n=>{const text=normalize(n.textContent);return !hiddenEvidence(n)&&text!==''&&!temporal.test(text);});
+          const qualifies=restriction&&temporalNotice&&!start&&!conflictingNotice;
+          if(traceActivity&&restriction)quizOpening={
+            restriction:conflictingNotice?'other_or_conflicting':temporalNotice?'temporal_notice':'unrecognized_location',
+            attempts:noAttempts?'explicitly_none':'absence_not_confirmed',
+            startControl:!!start,
+          };
+          if(qualifies||quizOpening){
+            const schedule=quizSchedule(doc,cmid,normalize,expectedCloseAt,quizOpening);
+            if(qualifies&&schedule?.openAt>Date.now())quizOpenAt=schedule.openAt;
+          }
+          absence=restriction?(quizOpenAt?(noAttempts?'quiz_not_yet_open':'quiz_scheduled'):'quiz_unavailable'):'quiz_no_attempts';
+        }else throw problem(table||summaries.length||lists.length?'STATE_UNKNOWN':'SELECTOR_MISSING',evidence);
+      }
+      if(done&&pageView==='view'&&main&&!main.closest('[aria-busy="true"]')&&positiveId(cmid)&&
+        [...doc.body.classList].filter(name=>name.startsWith('cmid-')).join(' ')==='cmid-'+cmid){
+        const headings=[...main.querySelectorAll('.generalbox.feedback > :is(h2,h3,h4,h5,h6)')].filter(node=>
+          !hiddenEvidence(node)&&![...node.querySelectorAll('*')].some(hiddenEvidence)&&
+          !node.closest('#intro, .intro, .activity-description, .description, .quizteacherfeedback, .quizgradefeedback, aside, nav, form'));
+        const values=headings.map(node=>normalize(node.textContent).match(
+          /^(?:Su calificación final en este cuestionario es|Your final grade for this quiz is)\s+(-?\d+(?:[.,]\d+)?\s*\/\s*\d+(?:[.,]\d+)?)\.?$/i)?.[1]).filter(Boolean);
+        if(values.length===1)grade=gradeText(values[0]);
       }
     }else throw problem('HTML_INCOMPATIBLE');
-    return {done,source:'moodle',t:Date.now(),...(absence?{absence}:{}),...(available?{available:true}:{}),...(grade?{grade}:{})};
+    return {done,source:'moodle',t:Date.now(),...(absence?{absence}:{}),...(available?{available:true}:{}),...(grade?{grade}:{}),...(evaluationGrade?{evaluationGrade}:{}),...(quizOpenAt?{quizOpenAt}:{}),...(quizOpening?{quizOpening}:{}),...(assignAvailability?{assignAvailability}:{}),...(assignGroup?{assignGroup}:{})};
   }
   const categories = Object.freeze(['proximas','atrasadas','entregadas','pendientes','desconocidas']);
+  const activityTypes = Object.freeze(Object.keys(mods));
   const titleLimit = 80;
   const defaultTitle = 'Mis actividades · Campus UG Revamp';
+  const datePresets=Object.freeze(['next-week','next-month','last-week','last-month']);
+
+  function localDate(value) {
+    if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return null;
+    const [year,month,day]=value.split('-').map(Number);
+    const date=new Date(0);
+    date.setFullYear(year,month-1,day);
+    date.setHours(0,0,0,0);
+    return year>0&&date.getFullYear()===year&&date.getMonth()===month-1&&date.getDate()===day?date:null;
+  }
+
+  function dateRange(value) {
+    if(datePresets.includes(value?.preset))return {preset:value.preset};
+    const from=localDate(value?.from)?value.from:'', to=localDate(value?.to)?value.to:'';
+    return (from||to)&&(!from||!to||from<=to)?{from,to}:null;
+  }
+
+  function dateBounds(range, now=new Date()) {
+    if(!range)return null;
+    let from,to;
+    if(range.preset){
+      const today=new Date(now);
+      today.setHours(0,0,0,0);
+      const other=new Date(today), future=range.preset.startsWith('next-'), direction=future?1:-1;
+      if(range.preset.endsWith('-week'))other.setDate(today.getDate()+7*direction);
+      else{
+        other.setDate(1);
+        other.setMonth(other.getMonth()+direction+1,0);
+        other.setDate(Math.min(other.getDate(),today.getDate()));
+      }
+      [from,to]=future?[today,other]:[other,today];
+    }else{
+      from=localDate(range.from);
+      to=localDate(range.to);
+    }
+    if(to)to.setDate(to.getDate()+1);
+    return {start:from?from.getTime()/1000:-Infinity,end:to?to.getTime()/1000:Infinity};
+  }
+
+  function filterPresentationRows(rows,types,bounds) {
+    return rows.filter(({it})=>types.includes(it.mod)&&(!bounds||
+      Number.isFinite(it.due)&&it.due>0&&it.due>=bounds.start&&it.due<bounds.end));
+  }
 
   function presentation(value) {
     const saved = value?.schema === 1 ? value : {};
@@ -472,6 +718,9 @@
       ...(saved.position==='hidden'&&saved.restoreStatusBelow===true?{restoreStatusBelow:true}:{}),
       mode:saved.mode === 'custom' ? 'custom' : 'tabs',
       categories:Array.isArray(saved.categories) ? categories.filter(id=>saved.categories.includes(id)) : ['proximas'],
+      visibleTabs:Array.isArray(saved.visibleTabs) ? categories.filter(id=>saved.visibleTabs.includes(id)) : [...categories],
+      activityTypes:Array.isArray(saved.activityTypes) ? activityTypes.filter(id=>saved.activityTypes.includes(id)) : [...activityTypes],
+      dateRange:dateRange(saved.dateRange),
       title:title || defaultTitle,
       size:['compact','normal','wide'].includes(saved.size) ? saved.size : 'normal',
       limit:[5,10,30].includes(saved.limit) ? saved.limit : null,
@@ -494,6 +743,7 @@
     return [...result.values()].sort((a,b)=>ascending ? a.due-b.due : b.due-a.due);
   }
 
-  globalThis.UGCore = { CONFIG, mods, item, empty, clean, needsCheck, verificationDecision, allowsRequest, closeEvidence, identity, ERROR_LABELS, problem, retryAfter, recoveryWait, safeDetails, failureRecord, cleanFailures, checkIdentity, recognizeFeedback, recognize, gradeText, readState, mergeMonth, completion, categories, titleLimit, presentation, matchesCategory, presentationList };
+  globalThis.UGCore = { CONFIG, mods, item, empty, clean, needsCheck, selectorUpgrade, verificationDecision, allowsRequest, closeEvidence, identity, ERROR_LABELS, problem, retryAfter, recoveryWait, safeDetails, failureRecord, cleanFailures, checkIdentity, recognizeFeedback, recognize, gradeText, readState, mergeMonth, completion, categories, titleLimit, presentation, matchesCategory, presentationList };
+  Object.assign(globalThis.UGCore,{datePresets,dateRange,dateBounds,filterPresentationRows});
   if(typeof module !== 'undefined') module.exports = globalThis.UGCore;
 })();

@@ -28,7 +28,7 @@ async page=>{
   });
   await page.reload();await settled();
   const first=await diag();
-  check(first.version==='2.3.0','Versión');
+  check(first.version==='2.4.0','Versión');
   check(first.lastRun.checked===4&&first.lastRun.activityErrors===1,'Solo tareas y cuestionario en ejecución');
   check(first.effective.unknown===1&&first.effective.manualPending===4,'Quiz desconocido separado de foros por confirmar, incluido el desmarcado');
   check(first.activeFailures.length===1&&first.activeFailures[0].module==='quiz','Solo fallo activo del quiz');

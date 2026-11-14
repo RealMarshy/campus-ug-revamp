@@ -1,5 +1,235 @@
 # Verificaciones de Campus UG Revamp
 
+## Validación real previa a la publicación de 2.4.0
+
+El usuario confirmó en Moodle UG las etiquetas «Sin entrega · Disponible para agregar entrega» y «Sin entrega · Bloqueada por grupo». También confirmó «No iniciado · Disponible para realizar» en un cuestionario disponible y el reconocimiento de dos cuestionarios con apertura futura mediante `quiz-opening-ug-header-3`. La batería automatizada de esta revisión aprobó 41 pruebas Node y 783 comprobaciones en 24 suites de Chrome, sin fallos ni omisiones.
+
+Al preparar la publicación, se actualizó el README incluido en el ZIP. Sus otras siete entradas coinciden con el paquete validado en Chrome. Se verificaron el manifiesto, la licencia MIT y la licencia de la ilustración pública. El ZIP de lanzamiento pesa **72.888 bytes** y su SHA-256 es `8A8BEDBCB6184099E0A65027CED9FC46132D75EEC56B33090A66501666667163`.
+
+## Bloqueo por grupo en Moodle UG · 2.4.0
+
+La comprobación real de la tarea B mostró «Sin entrega · Disponible para agregar entrega». En la tarea A, Moodle mostró el aviso largo de bloqueo por falta de grupo y Revamp mostró «No entregada según Moodle». El texto facilitado por el usuario coincide con `noteam_desc` del español internacional de Moodle 4.5, incluida la errata «miempro». El detector anterior exigía la coincidencia completa de un aviso corto y rechazaba el largo. También omitía el aviso corto «No perteneces a ningún grupo.». La regresión sintética falló con el detector previo y reprodujo el rechazo en la estructura del renderer oficial. Queda por confirmar qué elementos exactos devuelve el GET de Moodle UG. [Renderer de Moodle 4.5](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/assign/classes/output/renderer.php#L647-L681) · [Paquetes oficiales de idiomas](https://download.moodle.org/langpack/4.5/)
+
+El renderer de estudiante coloca `noteam` en la fila de grupo y agrega `noteam_desc` después de la tabla, dentro de `.submissionstatustable`. El detector acepta el aviso largo documentado en ese bloque de estado, además de las variantes cortas. Se excluyen los avisos ocultos, las instrucciones de la actividad y las restricciones genéricas. Los avisos fuera del bloque reconocido siguen siendo ambiguos. La coincidencia de cuenta, vista y módulo sigue siendo requisito para guardar la disponibilidad.
+
+Al reconocer el aviso, Revamp guarda `group_blocked` junto con `done=false` y renderiza «Sin entrega · Bloqueada por grupo». La prueba de recarga confirma que el indicador no se pierde en el historial, la normalización ni la presentación. Una respuesta válida con el control habilitado de la misma tarea conserva «Disponible para agregar entrega». La entrega confirmada y la evaluación sin envío mantienen prioridad. Se reutiliza la única lectura de la tarea y se mantienen sus categorías y vencimiento.
+
+La reverificación individual muestra `lastRun.assignGroup` en Diagnóstico. El bloque solo contiene indicadores enumerados y booleanos. No se guarda en almacenamiento. Para la tarea A se espera `moduleMatches: true`, `eligible: true`, `state: "no_submission"`, `groupNotice: "short"` o `"description"` y `result: "group_blocked"`. Para la tarea B se espera `result: "add_submission"`. Si la etiqueta difiere, comparte solo `lastRun.assignGroup` después de pulsar ⟳ en la fila. `missing` indica ausencia de candidatos visibles en el bloque reconocido y `unrecognized` indica que había candidatos cuyo texto no coincidió. `not_checked` indica que las condiciones previas no permitieron evaluar la disponibilidad.
+
+La batería aprobó 41 pruebas Node y 783 comprobaciones en las 24 suites conjuntas de Chrome, sin fallos ni omisiones. Evidencias pasó 65 comprobaciones y Cuestionarios pasó 90, incluida la revisión `quiz-opening-ug-header-3`. Los seis escenarios auditados siguen cubiertos. En Chrome 157, la extensión extraída del ZIP también pasó una prueba sintética de carga, etiqueta y reverificación individual con `groupNotice: "description"`.
+
+Se sincronizaron la carpeta personal, el borrador público local y el ZIP de ocho entradas. La ruta de la instalación, su almacenamiento y el JPG privado se conservaron. El ZIP contiene el PNG público y la licencia de la ilustración. La versión sigue en 2.4.0. Pesa **72.788 bytes** y su SHA-256 es `3F9BACC6C5FE23A5A80339B3CF96E26C3BC9077B09332D31FB8502FB1B8176C3`. La verificación de ambas etiquetas con este paquete en Moodle UG queda pendiente antes de publicar.
+
+## Auditoría final de detectores de 2.4.0
+
+| Caso | Evidencia y detector | Resultado y cobertura |
+| --- | --- | --- |
+| A. Tarea grupal bloqueada | Estado de envío y aviso explícito dentro de .submissionstatustable | El detector anterior confirmaba la falta de envío y omitía la causa. Ahora informa «Bloqueada por grupo» conservando la categoría por vencimiento. Se prueba también un control contradictorio y se da prioridad al bloqueo. |
+| B. Tarea disponible | Estado de envío y control habilitado en un formulario GET de la vista de tarea con el módulo y la acción de edición esperados | Antes solo indicaba que faltaba la entrega. Ahora indica que Moodle permite agregarla. Se prueban ausencia, deshabilitación, módulo incorrecto y botón dentro de instrucciones. El control se inspecciona como evidencia y nunca se ejecuta. |
+| C. Foro de preguntas y respuestas | Categoría por vencimiento y confirmación manual o histórica | Publicaciones ajenas y bloqueos de discusiones no se interpretan como participación ni disponibilidad general. El foro futuro puede aparecer en Próximas y Pendientes como actividad por atender. El estado de participación es manual y se comprueba que no se consulte ninguna página de foro. |
+| D. Encuesta respondida y abierta | Aviso explícito de respuesta previa en el bloque de estado propio de Feedback | Entregadas aun con cierre futuro. La suite Feedback comprueba conservación frente a una respuesta posterior que solo indica disponibilidad. |
+| E. Cuestionario disponible | Formulario de primer intento del módulo esperado, habilitado, sin señales contradictorias | No iniciado y disponible. La suite de cuestionarios cubre inicio tradicional y localizado, control deshabilitado, inicio sin identidad de módulo y regresión de tarjetas Moove. |
+| F. Encuesta cerrada con historial desconocido | Aviso de indisponibilidad y ventana de cierre verificada | Se muestra cerrada y la participación queda en Sin verificar. Una finalización histórica verificada se conserva. |
+
+Las fechas tienen significado por módulo. Los cuestionarios interpretan la apertura con etiquetas span o strong en bloques académicos reconocidos y contrastan el cierre con el calendario. En tareas se usa el estado de envío y el control habilitado para evaluar disponibilidad, aunque haya vencido el plazo nominal. En foros el vencimiento ordena la fila y no confirma permisos. En encuestas el cierre no acredita participación. La cobertura de encabezados con span, strong, contenedores vacíos y fechas contradictorias corresponde a la suite de cuestionarios.
+
+La corrección de tareas conserva el estado de envío y guarda solamente un indicador enumerado de disponibilidad en el registro existente, con cuenta y módulo verificados. Se basa en el [renderer de tareas](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/assign/classes/output/renderer.php#L591) y el [menú de entrega](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/assign/classes/output/user_submission_actionmenu.php#L99). El caso de evaluación sin envío y su nota mantienen su precedencia.
+
+La revisión de privacidad se limitó al material de prueba y al paquete de distribución. Los fixtures nuevos son sintéticos. El ZIP tiene ocho entradas públicas y no contiene fixtures, documentos adjuntos, caché ni el JPG privado. La detección reutiliza el GET de la actividad. La política manual de foros se mantiene.
+
+El fixture inicial de Presentación suponía que ninguna actividad próxima podía vencer en el día actual. Se fijó el reloj del escenario y se situaron sus vencimientos futuros desde el día siguiente. «Hace 1 semana» empieza a las 00:00 locales de hace siete días, inclusive, y termina a las 00:00 del día siguiente al actual, exclusive. Incluye todo el día actual. El filtro y sus límites se conservan.
+
+### Batería final conjunta
+
+| Entorno | Resultado |
+| --- | --- |
+| Node | 41 pruebas en 7 archivos, sin fallos, omisiones ni cancelaciones. |
+| Chrome con Moodle simulado | 769 comprobaciones en las 24 suites, incluida la referencia de recuperación. Cero fallos y cero suites omitidas. Presentación pasó 120, Cuestionarios 90 y Evidencias 51. |
+| Comprobaciones complementarias en Chrome | 2 aprobadas. Con aviso de grupo y control contradictorio en la misma tarea, una entrega confirmada mantiene prioridad y una evaluación sin envío conserva su estado y nota. |
+
+La batería incluyó los seis escenarios de la auditoría, la revisión `quiz-opening-ug-header-3`, filtros, categorías, límites de fechas y preservación de estados. Los fixtures confirman que ambos estados de disponibilidad conservan `done=false`. Una tarea sin control mantiene su estado de envío sin inferir bloqueo. Las regresiones de persistencia confirmaron que las marcas manuales conservan prioridad y que los estados históricos se pueden seguir leyendo. Las pruebas de verificación individual observaron una sola lectura de la actividad. Las pruebas de filtros observaron cero solicitudes adicionales.
+
+### Integridad y distribución
+
+La extensión personal configurada en Chrome apunta a `campus-ug-revamp` con su ID existente. Comparte los archivos funcionales de 2.4.0 con el borrador público `output/preparacion-github-2.0.9.1/campus-ug-revamp`, con la variante privada de la imagen y su referencia en la copia personal. La validación dejó intacto el perfil y el almacenamiento de Chrome.
+
+Las ocho entradas del ZIP coinciden byte a byte con los archivos públicos del borrador. El manifiesto declara 2.4.0 y todos sus recursos existen. Se incluyen el PNG público y su licencia, el README y la licencia MIT con el aviso original. El ZIP excluye el JPG privado, HTML autenticado, fixtures, caché y credenciales. Chrome 157 ya cargó este mismo paquete extraído en un perfil aislado.
+
+`campus-ug-revamp-2.4.0.zip` pesa **72.253 bytes**. SHA-256 `5BE2ED449F597A1AE5CA00FED8C779948F85D14146C2257A196FE8F7DF7F0B53`. Solo se actualizó este registro de auditoría, que queda fuera del paquete.
+
+La Release pública 2.3.0 conserva su archivo de 64.592 bytes con SHA-256 `5CFF961B98D77455ABBB71A68C96B4BD20FF59849ED49512B0D39BE0BAFDA3D3`, comprobado mediante una consulta de solo lectura. [Release 2.3.0](https://github.com/RealMarshy/campus-ug-revamp/releases/tag/v2.3.0)
+
+### Comprobación pendiente en Moodle UG
+
+1. En `chrome://extensions`, pulsa **Recargar** en la tarjeta de Campus UG Revamp 2.4.0 y vuelve a cargar la página de Moodle donde aparece el panel.
+2. Selecciona el curso y el tipo **Tarea**. Si la actividad queda fuera de la vista, limpia el filtro de fecha y busca en **Pendientes**, **Próximas** o **Atrasadas**, según el vencimiento.
+3. Abre el enlace de la fila y revisa **Estado de la entrega** en Moodle. En el caso A debe aparecer un aviso explícito de que no perteneces a un grupo. En el caso B debe verse el control **Agregar entrega** habilitado en esa tarea. Basta con observarlo.
+4. Vuelve a Revamp y pulsa **Reverificar esta actividad** (⟳) en esa misma fila. El caso A debe mostrar «Sin entrega · Bloqueada por grupo» y el B «Sin entrega · Disponible para agregar entrega». La etiqueta puede ir seguida de la hora de la comprobación. Una entrega confirmada, una evaluación sin envío o una marca manual conservan su tratamiento.
+5. Si la etiqueta difiere, abre **Diagnóstico de verificaciones** inmediatamente después. Si el resumen está oculto, muéstralo desde **Personalizar**. Comprueba `version`, `detectorRevision`, `lastRun.mode` (`one`), `checked` (1) y `activityErrors` (0). Si aparece `shared: true`, pudo reutilizarse una comprobación simultánea y `checked` puede ser 0. Si aparece un fallo activo, comparte únicamente `stage`, `module`, `code` y `details` de la entrada relevante.
+
+Diagnóstico registra errores de verificación y carece de un campo específico para la disponibilidad de tareas. Si la lectura termina sin errores y la etiqueta sigue siendo genérica, basta con compartir el texto del aviso o del control, si este aparece habilitado y si apunta a la misma tarea (sí, no o desconocido). Omite HTML, URL completas, identificadores y datos de sesión.
+
+## Fechas de cuestionarios en el encabezado de Moodle UG
+
+La revisión quiz-opening-schedule-2 recibió el documento completo, pero buscó el bloque de fechas bajo los contenedores del encabezado de actividad. En los fragmentos de Moodle UG, esos contenedores están vacíos y las fechas se encuentran en header#page-header, debajo de header-extras-container. Antes de modificar el detector, los dos fixtures anonimizados reprodujeron el rechazo. Las etiquetas span.date-item-label también requerían una lectura distinta de las etiquetas strong del formato anterior.
+
+La revisión quiz-opening-ug-header-3 admite la ruta comprobada y comprueba que el nombre del bloque concuerde con el encabezado de la página, además de la identidad de cuenta y el cmid existentes. Lee el texto hermano de cada etiqueta, valida el día de la semana y el calendario en hora de Ecuador, y conserva el cierre original. Los fixtures incluyen diciembre a enero y un intervalo de una hora. Una apertura pasada, un cierre divergente, un bloque duplicado o un encabezado de otra actividad conservan Sin verificar. Se guardaron únicamente fixtures sintéticos con identificadores ficticios.
+
+El resultado quiz_scheduled alimenta Próximas y Pendientes sin afirmar que no hubo intentos. Se mantiene la prioridad de la entrega confirmada y su calificación, así como la marca manual. La reverificación usa el GET existente.
+
+Pasaron 41 pruebas de Node y 762 comprobaciones en las 24 suites conjuntas de Chrome, sin fallos ni omisiones. La suite de cuestionarios pasó sus 90 comprobaciones. Chrome 157 cargó el paquete extraído en un perfil aislado. El ZIP sincronizado pesa 71.658 bytes. SHA-256 `68E08EC7363C231B95B50193CA2A9F905AD4E809B032B32D94F4B9E85495A4CE`.
+
+
+## Programación futura y evidencia de intentos
+
+La reverificación en Moodle UG confirmó el módulo y el aviso temporal, pero devolvió header=missing y attempts=absence_not_confirmed. La búsqueda anterior ya recorría todo el documento. El fallo confirma que el HTML GET no ofreció un bloque visible que cumpliera la relación exacta de selectores, pero no indica cómo está construido el encabezado en el campus. Se amplió la búsqueda a los contenedores oficiales de [encabezado](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/lib/templates/activity_header.mustache) e [información de actividad](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/course/templates/activity_info.mustache). El diagnóstico añade la ubicación del bloque respecto de region-main.
+
+El estado quiz_scheduled representa una apertura futura verificada sin determinar la existencia de intentos previos. Requiere un único bloque válido, el módulo esperado, un aviso temporal sin restricciones incompatibles, fechas ordenadas y coincidencia del cierre con el calendario. Los intentos reconocidos y las marcas manuales siguen teniendo prioridad. En Pendientes significa que hay una actividad por atender. La fecha de cierre sigue siendo la del calendario.
+
+El diagnóstico de la revisión quiz-opening-schedule-2 usa el mismo GET. Si el encabezado sigue ausente, se requieren las etiquetas y clases del bloque Abre/Cierra y sus ancestros hasta el contenedor de actividad, con los nombres de atributos data-for y data-region y sus valores de plantilla. Conviene indicar si aparece en la pestaña Respuesta de DevTools, en Elementos o en ambas. Se pueden sustituir fechas por ejemplos y omitir IDs de actividad, nombres, enlaces, scripts y datos de sesión.
+
+Pasaron 41 pruebas de Node y 755 comprobaciones en las 24 suites conjuntas de Chrome. La suite de cuestionarios pasó 83 comprobaciones. Chrome 157 cargó el ZIP extraído. El ZIP pesa 71.377 bytes. SHA-256 `C0661083B9840808310F250EA2075A4EEC6902FC3823A0B82E15D936B9F44B0B`.
+
+
+## Diagnóstico dirigido de apertura
+
+La revisión quiz-opening-diagnostics-1 registra lastRun.quizOpening al reverificar individualmente un cuestionario cuya indisponibilidad reconoce el detector. El resultado contiene valores enumerados y booleanos sobre el módulo, el encabezado, la apertura, el cierre, la concordancia con el calendario, la restricción y la evidencia de intentos. Se omiten fechas, identificadores y HTML. La ruta utiliza el mismo GET y conserva la clasificación.
+
+El caso simulado con fechas válidas y sin confirmación de ausencia de intentos devuelve quiz_unavailable, con opening=future, calendarClose=match y attempts=absence_not_confirmed. El diagnóstico previo de Moodle UG solo contiene el resultado agregado y queda pendiente obtener estos indicadores en la cuenta real.
+
+Pasaron 41 pruebas Node y 744 comprobaciones en 24 suites conjuntas de Chrome, sin fallos ni omisiones. Chrome 157 cargó el ZIP extraído en un perfil aislado. El ZIP pesa 71.297 bytes. SHA-256 `B26239E006648413250F6146B8A5A186D63D5A205D9EEDBC88D2D7453AB7E968`.
+
+
+## Apertura futura de cuestionarios en 2.4.0
+
+Las dos capturas muestran aperturas futuras y el aviso genérico de indisponibilidad. La versión anterior exigía un aviso explícito de apertura pendiente, de ahí dos quiz_unavailable y cero quiz_not_yet_open tras 27 comprobaciones. Moodle emite el mismo aviso genérico antes de abrir y después de cerrar. [Regla de fechas de Moodle](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/quiz/accessrule/openclosedate/rule.php#L31).
+
+Revamp usa la vista y el cmid comprobados, las fechas del encabezado académico y una señal explícita de ausencia de intentos. El cierre visible en español debe coincidir al minuto con el cierre del calendario, usando la hora de Ecuador. Se rechazan fechas ocultas, duplicadas, invertidas o fuera del encabezado y avisos contradictorios. La fecha de apertura confirmada se guarda en el estado automático existente. Al alcanzarla, la actividad se revalida en el siguiente ciclo elegible sin temporizador propio y respetando backoff y marcas manuales. Una restricción posterior conserva la finalización previa confirmada por Moodle.
+
+Las capturas no acreditan la señal de ausencia de intentos ni la estructura del HTML de la respuesta GET. Para confirmar el comportamiento real, se necesita un fragmento sanitizado del encabezado con las dos filas de fechas, el aviso dentro de quizattempt y los indicadores de intentos, si los hay. La coincidencia del id de la fila y del cmid de la página puede reportarse como sí o no.
+
+
+Pasaron 41 pruebas Node y 743 comprobaciones en las 24 suites conjuntas de Chrome, sin fallos ni omisiones. La primera ejecución mostró que el fixture de recuperación variaba el vencimiento entre consultas: la invalidación de caché consiguiente contradecía la premisa de la prueba. Se mantuvo un vencimiento fijo en ese fixture y se repitió toda la batería sin ampliar plazos. La suite de cuestionarios pasó 71 comprobaciones en la batería conjunta.
+
+Chrome 157 cargó el ZIP extraído. El paquete sincronizado pesa 70.781 bytes. SHA-256 `54CDEF8594F583B7261F30F86C7C7EFC9D02865D7BA3851A42361ACA8D49F2D1`.
+
+
+## Auditoría de sincronización y notas en 2.4.0
+
+El diagnóstico real muestra un ciclo normal con seis meses reutilizados, 26 aciertos de caché y cero verificaciones. La captura confirma que la reverificación individual reconoció el intento. El diagnóstico posterior carece de fallos activos y no permite reconstruir la política exacta aplicada al cuestionario antes de esa acción. Un SELECTOR_MISSING antiguo podía conservar hasta seis horas de espera. El TIMEOUT histórico de cabeceras corresponde a una tarea y no explica el caso del cuestionario.
+
+| Modo | Calendario y actividades |
+| --- | --- |
+| Inicio o regreso visible antes del próximo ciclo periódico | Comprueba sesión y reutiliza calendario vigente. Solo revisa actividades elegibles. |
+| Actualizar | Actualiza el mes actual y los dos siguientes, con reutilización de lecturas compartidas recientes. Aplica la política de actividades. |
+| Reverificar todo | Consulta el calendario completo y comprueba actividades compatibles, con cancelación. |
+| Reverificar actividad | Comprueba la actividad elegida, incluso durante la espera de reintento. Puede compartir una comprobación concurrente. |
+| Periódico | Funciona con la pestaña visible. En un ciclo por temporizador consulta el mes actual y los dos siguientes. Al volver visible con el ciclo vencido puede incluir históricos según su TTL. |
+
+El TTL normal es de 10 minutos para estados pendientes y 24 horas para entregados. El calendario conserva los meses recientes 15 minutos y los históricos 24 horas. Las marcas manuales, el backoff, el archivo, los estados vigentes y la coordinación entre pestañas pueden dejar cero actividades elegibles. El cambio de metadatos y el vencimiento de la evidencia también influyen. Un incidente histórico no equivale a un fallo activo.
+
+Se permiten hasta dos comprobaciones selectivas por ciclo automático para fallos de selector con la huella anterior al detector Moove. La revisión se guarda en el registro existente por actividad y se comparte bajo Web Locks. Se conserva la concurrencia de tres y las esperas de errores HTTP, red y sesión. La prueba del sandbox verificó una sola recuperación tras actualizar y ninguna repetición al recargar.
+
+Un cuestionario con apertura pendiente solo entra en Próximas y Pendientes cuando la vista confirma que aún no abre, no registra intentos y tiene un vencimiento futuro. Una restricción genérica conserva Sin verificar. La captura real solo muestra la etiqueta genérica de Revamp.
+
+En un cuestionario finalizado, la nota oficial se toma del encabezado visible del resumen general de Moodle con cuenta y cmid verificados. Se excluyen los puntos, porcentajes y notas por intento. La nota se guarda en los metadatos de verificación existentes. Las tareas conservan la evaluación sin envío en el historial. La última nota confirmada sigue visible con fecha tras el TTL o un fallo. Una respuesta válida puede sustituirla o retirarla. Foros y encuestas siguen sin nota automática. [Renderer de cuestionarios de Moodle](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/quiz/classes/output/renderer.php#L1193).
+
+| Actividades simuladas | Solicitudes anterior y actual | Comprobaciones anterior y actual | Sincronización anterior y actual |
+| ---: | --- | --- | --- |
+| 50 | 26 y 26 | 25 y 25 | 155,8 y 153,8 ms |
+| 200 | 101 y 101 | 100 y 100 | 527,4 y 525,8 ms |
+| 1.000 | 501 y 501 | 500 y 500 | 2.570,4 y 2.578,6 ms |
+
+El benchmark local mantuvo el calendario vigente. No incluyó fallos con la huella de migración ni midió pintura o filtrado a esas escalas. Presentación pasó 120 comprobaciones en Chrome. La suite de evidencias pasó 44 y mantuvo una única lectura por verificación.
+
+Pasaron 40 pruebas de Node. En la ejecución conjunta de Chrome pasaron 672 comprobaciones de 23 suites. Cuestionarios agotó su espera porque el reloj simulado activó una actualización periódica y la prueba aceptaba únicamente el mensaje de finalización normal. Se corrigió el fixture con una preferencia válida de actualización desactivada y se evitó guardar marcas de verificación con el reloj adelantado. La suite corregida pasó sus 70 comprobaciones al ejecutarse individualmente, sin ampliar los tiempos de espera.
+
+Chrome 157 cargó el ZIP extraído en un perfil temporal. El ZIP pesa 69.811 bytes y su SHA-256 es `9CC6972BCC595272176927CB822B48A61E16B6FFFB931A16629F5F1CF2C67064`.
+
+
+## Tareas calificadas sin envío en 2.4.0
+
+Una tarea sin envío registrado puede aparecer en Entregadas como «Calificada sin envío en Moodle». El detector exige la vista e identidad de la actividad, el cmid y la nota junto a su fecha en la tabla de evaluación. La estructura se contrastó con [el renderer de asignaciones de Moodle](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/assign/classes/output/renderer.php#L373). La captura de Moodle UG acredita la nota visible. Queda pendiente una reverificación en el campus con el paquete actualizado.
+
+El historial guarda la nota como evaluationGrade en el estado automático de la tarea, con done=false y source=moodle. El TTL sigue programando revisiones sin borrar la nota y un error de red conserva la evidencia anterior. Una comprobación válida puede actualizar o retirar la evaluación. Las marcas manuales siguen determinando la clasificación mientras estén activas.
+
+Pasaron 39 pruebas de Node. En la batería de Chrome, 23 suites pasaron 672 comprobaciones, incluidas 44 de evidencias. La suite de cuestionarios agotó el tiempo en esa ejecución y pasó sus 66 comprobaciones al repetirla por separado. El caso confirmado requiere una sola lectura GET de la tarea y no añade solicitudes a Moodle.
+
+Chrome 157 cargó el ZIP extraído en un perfil temporal. El paquete sincronizado pesa 69.156 bytes. SHA-256 `03E4FCE55BAAC3798488ED40EAFFE40449120C112B6DF2B793B1E9A63BBCA1A1`.
+
+
+## Cuestionarios con tarjetas de intentos en 2.4.0
+
+La captura muestra un intento finalizado. El diagnóstico 2.3.0 registró cero tablas de intentos y cero tablas de resumen. La última sincronización general reutilizó la caché y no verificó actividades. La captura no muestra la ruta completa ni permite corroborar que el cuestionario de la tarjeta sea el mismo que el de la fila de Revamp.
+
+Las plantillas públicas de Moove explican la discrepancia reproducida en el sandbox. Su lista de intentos usa .moove-attempts-list y la clase .quizreviewsummary aparece en un div. La comprobación nueva lee únicamente el campo Estado de cada tarjeta dentro de esa lista. Exige la vista principal del cuestionario, la identidad esperada y la clase de módulo con el mismo cmid. Un resultado finalizado válido prevalece sobre un intento posterior en curso. Las calificaciones se descartan como evidencia de finalización.
+
+Referencias técnicas · [Lista de intentos de Moove](https://github.com/willianmano/moodle-theme_moove/blob/main/templates/mod_quiz/list_of_attempts.mustache) · [Resumen de intento de Moove](https://github.com/willianmano/moodle-theme_moove/blob/main/templates/mod_quiz/attempt_summary_information.mustache) · [Generación del cmid en Moodle](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/lib/pagelib.php#L1921).
+
+La verificación individual usa la misma lectura GET que antes. Tras confirmar una entrega, el flujo existente retira el fallo activo y conserva las decisiones manuales. Para validar el caso original, abrir la actividad desde la fila de Revamp y corroborar localmente que la ruta sea mod/quiz/view.php con el mismo id que la página de la captura. Si la versión 2.4.0 sigue mostrando Sin verificar al reverificar solo esa actividad, compartir únicamente el resultado de esa comparación y la estructura sanitizada del bloque Sus intentos.
+
+Pasaron las 39 pruebas de Node y 653 comprobaciones de las otras 23 suites de Chrome con Moodle simulado. La primera ejecución de la suite de cuestionarios agotó el tiempo al buscar el estado en la caché base del fixture. La prueba se ajustó para leer el estado efectivo con el historial aplicado y pasó sus 58 comprobaciones al repetirla. Incluye reverificación tras un SELECTOR_MISSING con una sola lectura GET, persistencia al recargar y conservación de una marca manual.
+
+Chrome 157 cargó el ZIP extraído en un perfil temporal. ZIP de 68.388 bytes con SHA-256 `1ECB9D79B5B67B6D08F73A21E9CC8E71026675BCE9A4361689E547996568F473`.
+
+
+## Desactivación de rangos rápidos en 2.4.0
+
+Pulsar el rango activo usa el mismo tratamiento que Limpiar filtro. Los cuatro presets conservan el foco y actualizan aria-pressed, resultados y contadores. Aplicar fechas guarda un rango manual y quita el resaltado del preset anterior.
+
+Pasaron 39 pruebas Node. En la primera ejecución de las 24 suites de Chrome con Moodle simulado pasaron 666 comprobaciones y falló la suite Universal en la recuperación de un timeout. Universal pasó sus 23 comprobaciones al repetirla por separado. Presentación pasó 120 comprobaciones, incluidos los cuatro ciclos de activación, desactivación y reactivación, persistencia tras recargar y cero solicitudes adicionales por filtrar.
+
+Chrome 157 cargó el ZIP extraído en un perfil temporal. El ZIP pesa 67.777 bytes. SHA-256 `64F5DD4881DFEC6E8F5BE5AED36EAA9C2E13785AE881993BC8EC39BDC3C75B17`.
+
+## Personalizar sin filtros duplicados en 2.4.0
+
+Los controles de Fecha, Categorías y Tipos de actividad se administran desde los accesos rápidos. Personalizar conserva Vista de categorías y Restaurar configuración predeterminada, que también restablece los filtros. Se conserva el esquema de preferencias por cuenta.
+
+Pasaron 39 pruebas Node y 673 comprobaciones en 24 suites de Chrome con Moodle simulado, sin fallos ni omisiones. Presentación pasó 104 comprobaciones, con persistencia, restauración, teclado, ausencia de solicitudes HTTP adicionales y pruebas a 320, 360 y 960 px y con zoom CSS al 200 %. Chrome 157 cargó el ZIP extraído en un perfil temporal.
+
+El ZIP pesa 67.710 bytes. SHA-256 `E23CE25395B71DBCF75281C7931037937E99F46119EF8FF5A7F0F8C903851ABE`.
+
+## Distribución final de los filtros en 2.4.0
+
+En escritorio, Aplicar fechas se alinea con el calendario Hasta y Limpiar filtro queda junto a Dentro de 1 mes. En espacios estrechos, la cuadrícula reduce sus columnas. Categorías y Tipos de actividad permiten seleccionar o deseleccionar todo. Las dos vistas mantienen sus categorías por separado y la selección de tipos se comparte con Personalizar.
+
+Pasaron 39 pruebas Node y 672 comprobaciones en 24 suites de Chrome, sin fallos ni omisiones. Presentación pasó 103 comprobaciones, entre ellas alineación, responsive, selección vacía, restauración, teclado y ausencia de solicitudes adicionales al filtrar. Chrome aislado cargó el ZIP extraído con Moodle simulado y confirmó la persistencia de una selección vacía al recargar.
+
+El ZIP actualizado pesa 67.794 bytes. SHA-256 `2D1D46FBDEC5D7E419FB294B5381641C38B5948604E3ECBCCD88D19FC50364FA`. Las ocho entradas coinciden con sus archivos públicos. La instalación personal conserva su JPG y el paquete usa el PNG público.
+
+## Filtro Fecha en 2.4.0
+
+Fecha aparece a la izquierda de Categorías. Usa dos calendarios nativos y cuatro presets relativos. Los rangos manuales admiten un extremo vacío, mantienen las fechas por cuenta y rechazan rangos invertidos. Los límites se calculan una vez por render en hora local y el límite superior es la medianoche posterior al último día. Solo se comparan vencimientos existentes. Los presets se recalculan en el render ya programado por la extensión, sin otro temporizador ni peticiones de red.
+
+Pasaron 39 pruebas Node y 758 comprobaciones en 25 ejecuciones de Chrome, correspondientes a 24 suites distintas y una repetición de Presentación. Cero fallos y cero omisiones. Presentación terminó con 96 comprobaciones, incluidas combinaciones de curso, tipo y categoría, teclado, 320, 360 y 960 px y zoom CSS al 200 %. El ZIP extraído persistió un rango manual tras recargar en Chrome aislado, sin solicitudes al aplicar el rango.
+
+Mediana de cinco muestras de 10.000 iteraciones en Node. Microsegundos por aplicación del filtro, incluido el cálculo del preset activo. Se excluyen renderizado y red.
+
+| Actividades | Sin Fecha | Con Fecha |
+| ---: | ---: | ---: |
+| 50 | 0,50 | 1,49 |
+| 200 | 1,81 | 2,72 |
+| 500 | 4,52 | 5,98 |
+| 1.000 | 8,38 | 10,92 |
+
+El ZIP sincronizado pesa 67.664 bytes. SHA-256 `675FE4A374BBD23846625D9FD95DFE9B1A19E8C8EC6D17C808F8F353E086C0B9`.
+
+## Accesos rápidos en 2.4.0
+
+Categorías y Tipos de actividad aparecen debajo de la barra superior. Solo se abre un recuadro a la vez. Sus casillas y las de Personalizar usan las mismas preferencias por cuenta. Cerrar o pulsar Escape devuelve el foco al botón. Los accesos rápidos se ocultan si la sesión se detiene.
+
+Pasaron 37 pruebas Node y 652 comprobaciones en 24 suites de Chrome, con cero fallos y cero omisiones. Presentación verificó sincronización en ambos sentidos, ambas vistas, ancho de 320 y 360 px, zoom CSS al 200 %, teclado y cero consultas académicas al filtrar. Los temas y Dark Reader se comprobaron en el sandbox. En Chrome aislado se verificó que el ZIP conserve la selección después de recargar.
+
+Las tres copias conservan la versión 2.4.0. El ZIP contiene ocho archivos públicos, pesa 66.014 bytes y su SHA-256 es `4ECA8C6261533372E35F3414E57A8525637882B576FF24D4A39679B9AE807D03`. La copia personal conserva el JPG y la pública usa el PNG bajo CC0.
+
+## Organización visual en 2.4.0
+
+La base es el commit público `83e99f57b486fd766cda9ff84598bb0554bc74fe` de 2.3.0. La revisión de diferencias limitó el código a preferencias y renderizado, con la versión correspondiente en el manifiesto. Se conserva el esquema de presentación 1. Las cuentas anteriores reciben todas las pestañas y todos los tipos al faltar los nuevos campos. La selección de Lista simple se mantiene en `categories`.
+
+Pasaron 37 pruebas Node y 638 comprobaciones en 24 suites Chrome, incluida la comparación histórica de recuperación. La repetición focalizada de Presentación pasó 70 comprobaciones e incluyó 320 y 360 px y zoom CSS al 200 %. Las pruebas verificaron categorías independientes, deduplicación, selección por curso y tipo, contadores, recuperación del estado vacío, aislamiento por cuenta, teclado y cero solicitudes por cambiar filtros. Los temas y Dark Reader se probaron con los fixtures existentes.
+
+El ZIP 2.4.0 pesa 65.394 bytes. SHA-256 `1160CB4E63E7970F8B168B41AD7BB5085C3A015574595DB925E1B87609060588`. Chrome aislado cargó el paquete extraído, mostró el PNG público y conservó los tipos y pestañas después de reiniciar el navegador. Se usó Moodle simulado. La validación visual en el campus queda pendiente después de recargar la instalación personal.
+
 ## Auditoría final de la candidata 2.3.0
 
 El paquete de publicación pesa 64.592 bytes. SHA-256 `5CFF961B98D77455ABBB71A68C96B4BD20FF59849ED49512B0D39BE0BAFDA3D3`. La única entrada actualizada respecto del ZIP de la auditoría fue el README con el enlace de descarga oficial. Los scripts, el manifiesto, los estilos, la ilustración y las licencias conservaron sus bytes.

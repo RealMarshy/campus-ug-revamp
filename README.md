@@ -1,8 +1,14 @@
-# Campus UG Revamp 2.3.0
+# Campus UG Revamp 2.4.0 — The Daniel Update
 
 Extensión comunitaria e independiente para Chrome que reúne las actividades del Área personal de Moodle de la Universidad de Guayaquil. Usa Manifest V3. Este proyecto no es oficial ni está afiliado a la Universidad de Guayaquil o a Moodle.
 
-**Descarga oficial** · [Campus UG Revamp 2.3.0](https://github.com/RealMarshy/campus-ug-revamp/releases/tag/v2.3.0).
+**Descarga oficial** · [ZIP de Campus UG Revamp 2.4.0](https://github.com/RealMarshy/campus-ug-revamp/releases/download/v2.4.0/campus-ug-revamp-2.4.0.zip).
+
+Los accesos rápidos **Categorías** y **Tipos de actividad** permiten elegir qué pestañas se muestran y filtrar por Tareas, Cuestionarios, Foros o Encuestas. Puedes seleccionar o deseleccionar todas las opciones y cerrar el menú desde el mismo botón o con **Escape**. En **Personalizar** puedes cambiar de vista y restaurar los valores predeterminados. Los tipos se combinan con el curso en ambas vistas. **Lista simple (Antiguo)** reúne las categorías seleccionadas sin duplicar actividades y recuerda su selección por separado.
+
+**Fecha** filtra por vencimiento con un intervalo manual o con semanas y meses relativos a hoy. Los días inicial y final se incluyen completos. Las actividades sin vencimiento solo aparecen cuando Fecha está desactivado. Pulsa de nuevo el rango rápido activo para quitar el filtro Fecha y conservar los demás filtros. Puedes sustituir un rango rápido por uno manual con Aplicar fechas.
+
+Revamp distingue las tareas disponibles para agregar una entrega de las bloqueadas por falta de grupo. Una evaluación explícita puede mostrarse como **Calificada sin envío en Moodle**. En cuestionarios, reconoce los resultados con tarjetas de intentos de Moove y muestra una apertura futura verificada en **Próximas** y **Pendientes**.
 
 **2.3.0.** Incorpora encuestas de Feedback que aparecen en el calendario con eventos válidos. La apertura y el cierre se conservan por separado. En encuestas con cierre verificado, puedes usar la confirmación manual cuando Moodle no confirme la participación.
 
@@ -15,7 +21,7 @@ El resumen y el diagnóstico aparecen ocultos si la cuenta todavía no tiene una
 - Descubre actividades a partir de los eventos del calendario. Reutiliza consultas vigentes y comprueba los estados de tareas y cuestionarios cuando corresponde.
 - Conserva un historial local, las marcas manuales y las preferencias por cuenta. Gestiona los foros de forma manual.
 - Recupera fallos transitorios de tareas y cuestionarios en la primera carga y las sincronizaciones habituales. Los fallos persistentes conservan el último estado conocido y su espera antes de una nueva verificación.
-- Distingue cuestionarios sin intentos, no disponibles y sin estado reconocible dentro de Sin verificar. Muestra calificaciones numéricas explícitas en tareas entregadas cuando Moodle las proporciona.
+- Distingue cuestionarios disponibles, programados, restringidos y finalizados según la evidencia de Moodle. Muestra calificaciones numéricas explícitas de tareas y cuestionarios cuando puede verificarlas.
 - Permite filtrar por curso, personalizar la presentación y escoger entre Claro, Oscuro y Automático. El tema automático toma colores de Moodle y se adapta a Dark Reader.
 
 ## Instalación en Chrome

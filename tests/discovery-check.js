@@ -122,8 +122,9 @@ async (page,_baseline,alternative,reference)=>{
     return result;
   };
   const setting=name=>page.locator('[data-'+name+']');
+  const categoryFilter=page.locator(production?"#ugr-quick-categories":"#ugr-preferences");
   const categories=async(...values)=>{
-    for(const box of await page.locator('[data-category]').all())await box.setChecked(values.includes(await box.inputValue()));
+    for(const box of await categoryFilter.locator('[data-category]').all())await box.setChecked(values.includes(await box.inputValue()));
   };
   const repeats=async()=>{
     const result=[];
@@ -178,7 +179,8 @@ async (page,_baseline,alternative,reference)=>{
   const filterStart=wire.length;
   await setting('personalize').click();
   await setting('mode').selectOption('custom');
-  await setting('select-all').click();
+  if(production)await page.locator('[data-quick-filter="categories"]').click();
+  await categoryFilter.locator('[data-select-all]').click();
   pass(26,await rows().count()===42&&await listed(41)===1,'Todas las categorías, sin duplicar');
   await categories('proximas');
   pass(27,await rows().count()===42&&await listed(42)===1,'Solo Próximas');

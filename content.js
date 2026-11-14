@@ -2,7 +2,7 @@
   'use strict';
   if (document.getElementById('ugr-panel')) return;
   const C = UGCore, CFG = C.CONFIG, MODS = C.mods, ORIGIN = location.origin;
-  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.3.0';
+  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.4.0';
   const session = C.identity(document);
   const prefix = `ugr2:${ORIGIN}:${session.userId}:`;
   const historyKey=prefix+'history', lockName='campus-ug-revamp:'+session.userId;
@@ -12,6 +12,9 @@
   let stamps={}, calendarTimes={}, calendarRefreshes={}, exhaustiveAt=0, history={schema:1,changes:[]};
   let failures={}, incidents=[], lastRun={};
   const TABS = C.categories.map((id,index)=>({id,label:['Próximas','Atrasadas','Entregadas','Pendientes','Sin verificar'][index]}));
+  const TYPES = Object.entries({assign:'Tareas',quiz:'Cuestionarios',forum:'Foros',feedback:'Encuestas'});
+  const categoryPreference=()=>preferences.mode==='custom'?'categories':'visibleTabs';
+  const DATE_LABELS=['Dentro de 1 semana','Dentro de 1 mes','Hace 1 semana','Hace 1 mes'];
   const state = {items:[],tab:'proximas',loading:false,progress:'',error:'',store:{auto:{},manual:{}}};
   let preferences=C.presentation(), savedPreferences=preferences, pendingPreferences={};
   let presentationReady=false, savingPreferences=false, preferenceTimer;
@@ -95,9 +98,10 @@
     }
     for(const [id,v] of Object.entries(stored?.records??{})){
       if(!/^(assign|quiz|feedback):\d+$/.test(id)||!Number.isFinite(v?.t)||v.t>Date.now()||!Number.isFinite(v.stateAt)||v.stateAt>v.t)continue;
-      const grade=id.startsWith('assign:')&&C.gradeText(v.grade);
+      const grade=/^(assign|quiz):/.test(id)&&C.gradeText(v.grade);
       stamps[id]={t:v.t,stateAt:v.stateAt,closedAt:Number.isSafeInteger(v.closedAt)&&v.closedAt>0?v.closedAt:null,
-        observedAt:Number.isFinite(v.observedAt)?v.observedAt:0,...(grade?{grade}:{})};
+        observedAt:Number.isFinite(v.observedAt)?v.observedAt:0,...(grade?{grade}:{}),
+        ...(v.quizSelectorRevision===1?{quizSelectorRevision:1}:{})};
     }
     state.store={auto:cache.auto,manual:saved.manual};
     collect();
@@ -172,7 +176,7 @@
     const events=r.data.weeks.flatMap(w=>w.days.flatMap(d=>d.events||[]));
     const t=Date.now();return {t,items:events.map(ev=>C.item(ev,ORIGIN)).filter(Boolean).map(i=>({...i,synced:t}))};
   }
-  async function checkDone(it,timeoutMs=CFG.timeout){
+  async function checkDone(it,timeoutMs=CFG.timeout,closeAt=it.closeAt,traceActivity=false){
     if(it.mod==='forum')throw C.problem('DESTINATION');
     metrics.checks++;
     const html=await request(it.url,{},timeoutMs);
@@ -182,7 +186,7 @@
       const feedback=C.recognizeFeedback(doc,{origin:ORIGIN,userId:session.userId,cmid:it.cmid,window:it});
       return {done:feedback.done,source:'moodle',t:Date.now(),closed:feedback.state==='closed',...(feedback.done?{}:{feedbackState:feedback.state})};
     }
-    const status=C.recognize(doc,it.mod,session.userId,ORIGIN,it.cmid);
+    const status=C.recognize(doc,it.mod,session.userId,ORIGIN,it.cmid,closeAt,traceActivity);
     return {...status,closed:C.closeEvidence(doc,it.mod)};
   }
   function recordFailure(changes,k,e,stage,module='none',round='initial') {
@@ -245,7 +249,8 @@
     let finalMessage='';
     let archived=0, reactivated=0, cacheHits=0, changed=0, detected=0, unknownClose=0, shared=false, saveStamps=periodic;
     const recovered={forum:0,assign:0,quiz:0,feedback:0};
-    const recognizedAbsences={quiz_no_attempts:0,quiz_unavailable:0};
+    let quizOpening,assignGroup;
+    const recognizedAbsences={quiz_no_attempts:0,quiz_unavailable:0,quiz_not_yet_open:0,quiz_scheduled:0};
     lastRun={mode,trigger,manual,checked:0,activityErrors:0,calendarErrors:0,skipped:0,recovered,recognizedAbsences};
     try{
       assertSession();
@@ -308,6 +313,11 @@
       assertSession();
       const unique=candidates(periodic&&!recentOnly?'normal':mode,target)
         .sort((a,b)=>Math.abs(a.it.due-Date.now()/1000)-Math.abs(b.it.due-Date.now()/1000));
+      // Revisit at most two matching pre-Moove failures per automatic run, under the existing account lock.
+      const upgraded=manual?new Set():new Set(unique.filter(({it})=>{
+        const id=key(it), failure=failures[id];
+        return state.store.manual[id]===undefined&&Date.now()<failure?.retryAt&&C.selectorUpgrade(it,failure,stamps[id]);
+      }).slice(0,2).map(({it})=>key(it)));
       detected=unique.length;
       unknownClose=unique.filter(candidate=>candidate.closeAt===null).length;
       const verify=async (candidate,round='initial',timeoutMs=CFG.timeout)=>{
@@ -316,7 +326,7 @@
         if(round==='initial'){
           if(mode==='one' && stamp?.observedAt>=requestedAt){shared=true;return;}
           const policy=C.verificationDecision({item:it,status:previous,manual:state.store.manual[id],failure,stamp,closeAt,mode});
-          const decision=!force&&mode!=='one'&&policy==='check'&&serverWaiting(failure)?'backoff':policy;
+          const decision=serverWaiting(failure)&&!force&&mode!=='one'&&(policy==='check'||upgraded.has(id))?'backoff':upgraded.has(id)?'check':policy;
           if(decision!=='check'){
             metrics.cacheHits++;
             if(decision==='cache')cacheHits++;
@@ -330,18 +340,25 @@
           retriesAttempted++;
         }
         try{
-          let status=await checkDone(it,timeoutMs);
+          let status=await checkDone(it,timeoutMs,closeAt,mode==='one');
           assertSession();
           if(cancelled)return;
           if(round==='recovery'){recoveredAfterRetry++;errors--;}
           if(failures[key(it)])recovered[it.mod]++;
-          if(it.mod==='feedback'&&previous?.done&&previous.source==='moodle')status={...previous,t:status.t,closed:status.closed};
+          quizOpening=status.quizOpening??quizOpening;
+          assignGroup=status.assignGroup??assignGroup;
+          if(previous?.done&&previous.source==='moodle'&&(it.mod==='feedback'||
+            it.mod==='quiz'&&['quiz_unavailable','quiz_not_yet_open','quiz_scheduled'].includes(status.absence))){
+            status={...previous,t:status.t,closed:status.closed,...(it.mod==='quiz'&&stamp?.stateAt===previous.t?{grade:stamp.grade}:{})};
+          }
           if(Object.hasOwn(recognizedAbsences,status.absence))recognizedAbsences[status.absence]++;
           const closedAt=!status.absence && status.closed && closeAt && (status.t>closeAt||it.mod==='feedback'&&status.t===closeAt) ? closeAt:null;
           if(stamp?.closedAt && stamp.closedAt!==closedAt)reactivated++;
-          if(!previous||previous.done!==status.done||previous.source!==status.source||previous.absence!==status.absence||previous.available!==status.available||previous.feedbackState!==status.feedbackState){
+          if(!previous||previous.done!==status.done||previous.source!==status.source||previous.absence!==status.absence||previous.available!==status.available||previous.feedbackState!==status.feedbackState||previous.evaluationGrade!==status.evaluationGrade||previous.quizOpenAt!==status.quizOpenAt||previous.assignAvailability!==status.assignAvailability){
             const value={done:status.done,source:status.source,t:status.t,...(status.absence?{absence:status.absence}:{}),
-              ...(status.available?{available:true}:{}),...(status.feedbackState?{feedbackState:status.feedbackState}:{})};
+              ...(status.available?{available:true}:{}),...(status.feedbackState?{feedbackState:status.feedbackState}:{}),
+              ...(status.evaluationGrade?{evaluationGrade:status.evaluationGrade}:{}),...(status.quizOpenAt?{quizOpenAt:status.quizOpenAt}:{}),
+              ...(status.assignAvailability?{assignAvailability:status.assignAvailability}:{})};
             cache.auto[id]=value;
             changes.push({type:'auto',key:id,value});
             changed++;
@@ -351,7 +368,7 @@
             if(previous && previous.done===status.done && previous.source===status.source)changed++;
           }
           stamps[id]={t:status.t,stateAt:cache.auto[id].t,closedAt,observedAt:performance.timeOrigin+performance.now(),
-            ...(status.grade?{grade:status.grade}:{})};
+            ...(status.grade?{grade:status.grade}:{}),...(it.mod==='quiz'?{quizSelectorRevision:1}:{})};
           saveStamps=true;
           resolveFailure(changes,id);
         }
@@ -367,7 +384,7 @@
           }
           const delay=mode!=='one'&&round==='initial'?C.recoveryWait(e):null;
           if(delay!==null&&!stopped)retryQueue.set(id,{candidate,readyAt:performance.now()+delay});
-          stamps[id]={...(stamp??{t:0,stateAt:0,closedAt:null}),observedAt:performance.timeOrigin+performance.now()};
+          stamps[id]={...(stamp??{t:0,stateAt:0,closedAt:null}),observedAt:performance.timeOrigin+performance.now(),...(it.mod==='quiz'?{quizSelectorRevision:1}:{})};
           saveStamps=true;
         }
         if(!stopped&&!cancelled&&(!periodic||round==='recovery')){
@@ -433,7 +450,7 @@
       }else state.progress='Sincronización detenida.';
       metrics.syncMs=Math.round(performance.now()-start);
       lastRun={mode,trigger,manual,checked,activityErrors:errors,calendarErrors,skipped,calendarWaiting,
-        calendarRequested,calendarReused,calendarShared,newActivities,recovered,recognizedAbsences,detected,unknownClose,changed,archived,reactivated,cacheHits,shared,reverified:force||mode==='one'?checked:0,durationMs:metrics.syncMs,
+        ...(quizOpening?{quizOpening}:{}),...(assignGroup?{assignGroup}:{}),calendarRequested,calendarReused,calendarShared,newActivities,recovered,recognizedAbsences,detected,unknownClose,changed,archived,reactivated,cacheHits,shared,reverified:force||mode==='one'?checked:0,durationMs:metrics.syncMs,
         initialChecked:checked,initialErrors,retriesAttempted,recoveredAfterRetry,persistentErrors,
         initialDurationMs,recoveryDurationMs,retryConcurrency:retriesAttempted?1:0,timeoutPhase,recoveryDeferred:retryQueue.size-retriesAttempted,cancelled};
       if(periodic)lastPeriodicResult={...lastRun,startedAt:lastPeriodicRun,interrupted:!proceed()};
@@ -539,6 +556,8 @@
   const showFeedbackChoice=it=>it.mod==='feedback'&&feedbackClosed(it)&&
     (state.store.manual[key(it)]!==undefined||!completion(it).done);
 
+  const evaluationGrade=it=>it.mod==='assign'?state.store.auto[key(it)]?.evaluationGrade:null;
+
   const bucket = (it) => {
     const status=completion(it);
     if(it.mod==='forum')return status.done?'entregadas':dueBucket(it);
@@ -551,7 +570,9 @@
       if(['available','in_progress'].includes(feedback))return it.due==null?'pendientes':dueBucket(it);
       return 'desconocidas';
     }
+    if(status.source!=='manual'&&evaluationGrade(it)&&!['STATE_UNKNOWN','SELECTOR_MISSING','HTML_INCOMPATIBLE','VIEW_MISMATCH'].includes(failures[key(it)]?.code))return 'entregadas';
     if(staleDelivered(it))return 'entregadas';
+    if(it.mod==='quiz'&&status.source!=='manual'&&!failures[key(it)]&&state.store.auto[key(it)]?.quizOpenAt>Date.now()&&it.due>Date.now()/1000)return 'proximas';
     const auto=state.store.auto[key(it)];
     if(status.source!=='manual' && (failures[key(it)]||status.source==='unknown'||(auto?.absence&&!auto.available)))return 'desconocidas';
     if(status.done)return 'entregadas';
@@ -624,9 +645,9 @@
     return diff < 0 ? `venció hace ${t}` : `vence en ${t}`;
   }
 
-  const fmtDate = (ts) =>
+  const fmtDate = (ts,timeZone) =>
     ts==null?'':new Date(ts * 1000).toLocaleString('es-EC', {
-      weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+      weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone,
     });
 
   function itemHtml(it) {
@@ -634,8 +655,12 @@
     const done=classification==='entregadas';
     const unknown=classification==='desconocidas';
     const id=key(it), auto=state.store.auto[id], stamp=stamps[id];
-    const grade=done&&it.mod==='assign'&&auto?.source==='moodle'&&auto.done&&!failures[id]&&
-      stamp?.stateAt===auto.t&&Date.now()-stamp.t<CFG.completed?stamp.grade:null;
+    const evaluation=evaluationGrade(it);
+    const grade=evaluation||(/^(assign|quiz)$/.test(it.mod)&&auto?.source==='moodle'&&auto.done&&
+      stamp?.stateAt===auto.t?stamp.grade:null);
+    const historicalGrade=grade&&(failures[id]||Date.now()-(evaluation?auto.t:stamp.t)>=CFG.completed);
+    const gradeHtml=grade?`<span class="ugr-grade">${historicalGrade?`Última calificación confirmada (${esc(new Date(evaluation?auto.t:stamp.t).toLocaleString('es-EC'))})`:'Calificación'}: ${esc(grade)}</span>`:'';
+    const statusText=done?(evaluation?(state.store.manual[id]===undefined?'Calificada sin envío en Moodle':'Entregada (manual)'):'Entregada'):rel(it.due);
     const soon=classification==='proximas' && it.due * 1000 - Date.now() < 24 * 3600 * 1000;
     const cls = unknown ? 'ugr-unknown' : done ? 'ugr-done' : classification==='atrasadas' ? 'ugr-late' : soon ? 'ugr-soon' : '';
     return `
@@ -647,7 +672,7 @@
         </div>
         <div class="ugr-when">
           <div>${esc(fmtDate(it.due))}</div>
-          ${unknown ? `<div class="ugr-rel">Sin verificar · ${esc(rel(it.due))}</div>` : done ? `<div class="ugr-rel">Entregada${grade?` · <span class="ugr-grade">Calificación: ${esc(grade)}</span>`:''}</div>` : `<div class="ugr-rel">${esc(rel(it.due))}</div>`}
+          <div class="ugr-rel">${unknown?'Sin verificar · ':''}${esc(statusText)}${gradeHtml?' · '+gradeHtml:''}</div>
         </div>
         <div class="ugr-actions">
         ${it.mod==='forum'?'':`<button type="button" class="ugr-toggle" data-reverify="${esc(key(it))}" title="Reverificar esta actividad" aria-label="Reverificar esta actividad">⟳</button>`}
@@ -684,6 +709,7 @@
       return {available:'Disponible para responder',in_progress:'Disponible para continuar',
         restricted:'Acceso restringido'}[s?.feedbackState]??'Sin verificar · Participación sin confirmar';
     }
+    if(evaluationGrade(it))return f?'Calificada sin envío en Moodle · última consulta fallida':'Calificada sin envío en Moodle';
     if(staleDelivered(it)){
       const t=stamps[key(it)]?.t??s.t;
       return `Último estado confirmado: entregada · ${t>0?new Date(t).toLocaleString('es-EC')+' · ':''}Reconfirmación pendiente (${C.ERROR_LABELS[f.code]}).`;
@@ -691,15 +717,22 @@
     if(it.mod==='quiz'&&(f||!s||s.source==='unknown'))return 'Sin verificar · Moodle no proporcionó un estado reconocible';
     if(s?.absence==='quiz_no_attempts')return s.available?'No iniciado · Disponible para realizar':
       'No iniciado · No se han registrado intentos del cuestionario';
-    if(s?.absence==='quiz_unavailable')return 'Todavía no disponible · El cuestionario aún no permite iniciar un intento';
+    if(s?.quizOpenAt>Date.now())return 'Todavía no disponible · Abre el '+fmtDate(s.quizOpenAt/1000,"America/Guayaquil");
+    if(s?.quizOpenAt)return 'Sin verificar · Disponibilidad pendiente de actualización';
+    if(['quiz_unavailable','quiz_not_yet_open','quiz_scheduled'].includes(s?.absence))return 'Todavía no disponible · El cuestionario aún no permite iniciar un intento';
     if(f)return `Desconocido por error: ${C.ERROR_LABELS[f.code]}. ${s ? 'Último estado: '+(s.done?'entregada':'no entregada')+'. ' : ''}Reintento automático desde ${new Date(f.retryAt).toLocaleTimeString('es-EC')}. Puedes reverificar esta actividad.`;
     if(!s || s.source==='unknown') return 'Sin verificar · origen del estado anterior desconocido';
-    const label=s.done?'Entrega confirmada por Moodle':'No entregada según Moodle';
+    const label=s.done?'Entrega confirmada por Moodle':s.assignAvailability==='group_blocked'?'Sin entrega · Bloqueada por grupo':
+      s.assignAvailability==='add_submission'?'Sin entrega · Disponible para agregar entrega':'No entregada según Moodle';
     const time=stamps[key(it)]?.t??s.t;
     return time>0?`${label} · ${new Date(time).toLocaleString('es-EC')}`:label;
   }
   const panel=document.createElement('section');panel.id='ugr-panel';panel.className='ugr-panel';panel.hidden=true;
   panel.setAttribute('aria-labelledby','ugr-title');
+  const filterOptions=(options,attribute)=>options.map(([id,label])=>
+    `<label><input type="checkbox" ${attribute} value="${id}"> ${label}</label>`).join('');
+  const categoryOptions=filterOptions(TABS.map(({id,label})=>[id,label]),'data-category');
+  const typeOptions=filterOptions(TYPES,'data-activity-type');
   panel.innerHTML=`
     <div class="ugr-head">
       <h3 id="ugr-title"></h3>
@@ -709,6 +742,43 @@
         <button type="button" data-reverify-all>Reverificar todo</button>
         <button type="button" data-personalize aria-expanded="false" aria-controls="ugr-preferences"><span aria-hidden="true">⚙</span> Personalizar</button>
       </div>
+    </div>
+    <div class="ugr-quick-filters" data-quick-filters>
+      <button type="button" data-quick-filter="date" aria-expanded="false" aria-controls="ugr-quick-date"><span data-date-label>Fecha</span> <span class="ugr-date-chevron" aria-hidden="true">▾</span></button>
+      <button type="button" data-quick-filter="categories" aria-expanded="false" aria-controls="ugr-quick-categories">Categorías <span aria-hidden="true">▾</span></button>
+      <button type="button" data-quick-filter="types" aria-expanded="false" aria-controls="ugr-quick-types">Tipos de actividad <span aria-hidden="true">▾</span></button>
+      <fieldset id="ugr-quick-date" class="ugr-filter-group" hidden>
+        <legend>Rango de fechas</legend>
+        <div class="ugr-date-grid">
+          <label>Desde <input type="date" data-date-from aria-describedby="ugr-date-error"></label>
+          <label>Hasta <input type="date" data-date-to aria-describedby="ugr-date-error"></label>
+          <button type="button" data-apply-date>Aplicar fechas</button>
+        </div>
+        <div id="ugr-date-error" role="alert"></div>
+        <div class="ugr-date-grid ugr-date-presets">
+          ${C.datePresets.map((id,i)=>`<button type="button" data-date-preset="${id}" aria-pressed="false">${DATE_LABELS[i]}</button>`+
+            (i===1?'<button type="button" data-clear-date>Limpiar filtro</button>':'')).join('')}
+        </div>
+        <div class="ugr-preference-actions">
+          <button type="button" data-close-quick-filter>Cerrar</button>
+        </div>
+      </fieldset>
+      <fieldset id="ugr-quick-categories" class="ugr-filter-group" hidden>
+        <legend>Categorías</legend>
+        <div class="ugr-category-options">${categoryOptions}</div>
+        <div class="ugr-preference-actions">
+          <button type="button" data-select-all>Seleccionar todas</button>
+          <button type="button" data-deselect-categories>Deseleccionar todas</button>
+        </div>
+      </fieldset>
+      <fieldset id="ugr-quick-types" class="ugr-filter-group" hidden>
+        <legend>Tipos de actividad</legend>
+        <div class="ugr-category-options">${typeOptions}</div>
+        <div class="ugr-preference-actions">
+          <button type="button" data-select-types>Seleccionar todas</button>
+          <button type="button" data-deselect-types>Deseleccionar todas</button>
+        </div>
+      </fieldset>
     </div>
     <div id="ugr-preferences" class="ugr-preferences" hidden>
       <div class="ugr-title-setting">
@@ -720,22 +790,12 @@
         <div class="ugr-status-visibility"><span>Visibilidad</span><button type="button" data-toggle-status aria-controls="ugr-status" aria-expanded="true">Ocultar estado</button></div>
         <label>Tamaño del panel <select data-size><option value="compact">Compacto</option><option value="normal">Normal</option><option value="wide">Amplio</option></select></label>
         <label>Actividades visibles <select data-limit><option value="5">5</option><option value="10">10</option><option value="30">30</option><option value="">Sin límite</option></select></label>
-        <label>Vista de categorías <select data-mode><option value="tabs">Pestañas rápidas</option><option value="custom">Filtros personalizados</option></select></label>
+        <label>Vista de categorías <select data-mode><option value="tabs">Pestañas rápidas</option><option value="custom">Lista simple (Antiguo)</option></select></label>
       </div>
       <div class="ugr-preference-fields">
         <label>Actualización automática <select data-auto-refresh-minutes><option value="0">Desactivada</option><option value="10">Cada 10 minutos</option><option value="15">Cada 15 minutos</option><option value="30">Cada 30 minutos</option></select></label>
         <label>Apariencia <select data-appearance><option value="auto">Automático</option><option value="light">Claro</option><option value="dark">Oscuro</option></select></label>
       </div>
-      <fieldset data-categories hidden>
-        <legend>Categorías visibles</legend>
-        <div class="ugr-category-options">
-          ${TABS.map(t=>`<label><input type="checkbox" data-category value="${t.id}"> ${t.label}</label>`).join('')}
-        </div>
-        <div class="ugr-preference-actions">
-          <button type="button" data-select-all>Seleccionar todas</button>
-          <button type="button" data-reset-categories>Restablecer filtros</button>
-        </div>
-      </fieldset>
       <button type="button" data-reset-presentation>Restaurar configuración predeterminada</button>
       <div data-presentation-error role="alert"></div>
       <a class="ugr-credits-link" href="#ugr-credits" aria-haspopup="dialog" aria-controls="ugr-credits">Créditos</a>
@@ -759,7 +819,7 @@
     </div>
     <div data-list-body>
       <ul class="ugr-list" tabindex="0" aria-label="Actividades filtradas"></ul>
-      <div class="ugr-empty"><span data-empty-message></span><button type="button" data-reset-categories hidden>Restablecer filtros</button></div>
+      <div class="ugr-empty"><span data-empty-message></span><button type="button" data-reset-categories hidden>Restablecer filtros</button><button type="button" data-reset-types hidden>Restaurar todos los tipos</button><button type="button" data-clear-date hidden>Limpiar filtro</button></div>
     </div>
     <div class="ugr-foot">Confirma los foros en Pendientes con ✓ o ↺. En tareas y cuestionarios, haz doble clic en un estado manual para volver a la verificación automática.</div>
     <dialog id="ugr-credits" class="ugr-credits-dialog" aria-labelledby="ugr-credits-title">
@@ -1019,16 +1079,48 @@
     if(document.activeElement!==titleInput)titleInput.value=preferences.title;
   }
 
+  function displayQuickFilter(active) {
+    if(active?.dataset.quickFilter==='date')displayDateRange(true);
+    for(const button of panel.querySelectorAll('[data-quick-filter]')){
+      const expanded=button===active;
+      button.setAttribute('aria-expanded',String(expanded));
+      ui('#'+button.getAttribute('aria-controls')).hidden=!expanded;
+    }
+  }
+
+  let renderedDateRange;
+  function displayDateRange(force=false) {
+    const range=preferences.dateRange, signature=JSON.stringify(range);
+    if(!force&&renderedDateRange===signature)return;
+    renderedDateRange=signature;
+    ui('[data-date-from]').value=range?.from??'';
+    ui('[data-date-to]').value=range?.to??'';
+    ui('#ugr-date-error').textContent='';
+    const summary=range?.preset?DATE_LABELS[C.datePresets.indexOf(range.preset)]:
+      range?[range.from&&'Desde '+range.from.split('-').reverse().join('/'),range.to&&'Hasta '+range.to.split('-').reverse().join('/')].filter(Boolean).join(' · '):'';
+    ui('[data-date-label]').textContent=summary?'Fecha · '+summary:'Fecha';
+    for(const button of panel.querySelectorAll('[data-date-preset]'))
+      button.setAttribute('aria-pressed',String(button.dataset.datePreset===range?.preset));
+  }
+
+  function closeQuickFilter() {
+    const button=ui('[data-quick-filter][aria-expanded="true"]');
+    displayQuickFilter();
+    button?.focus();
+  }
+
   function displayPreferences() {
-    const custom=preferences.mode==='custom';
+    displayDateRange();
     displayTitle();
     panel.dataset.size=preferences.size;
     for(const field of ['position','mode','size','limit'])ui(`[data-${field}]`).value=preferences[field]??'';
     ui('[data-auto-refresh-minutes]').value=preferences.autoRefreshMinutes;
-    ui('[data-categories]').hidden=!custom;
-    for(const input of settings.querySelectorAll('[data-category]'))input.checked=preferences.categories.includes(input.value);
-    ui('.ugr-tabs').hidden=custom;
+    for(const input of panel.querySelectorAll('[data-category]'))input.checked=preferences[categoryPreference()].includes(input.value);
+    for(const input of panel.querySelectorAll('[data-activity-type]'))input.checked=preferences.activityTypes.includes(input.value);
+    ui('.ugr-tabs').hidden=preferences.mode==='custom'||!preferences.visibleTabs.length;
     ui('[data-personalize]').disabled=!presentationReady||stopped;
+    ui('[data-quick-filters]').hidden=!presentationReady||stopped;
+    if(stopped)displayQuickFilter();
     courseSelect.disabled=!presentationReady||stopped;
     if(stopped && !settings.hidden){
       settings.hidden=true;
@@ -1045,8 +1137,12 @@
     const signature=JSON.stringify(courses);
     if(signature!==courseSignature){courseSelect.innerHTML='<option value="all">Todos los cursos</option>'+courses.map(([id,n])=>`<option value="${esc(id)}">${esc(n)}</option>`).join('');courseSignature=signature;}
     courseSelect.value=course;
-    const custom=preferences.mode==='custom', selected=custom?preferences.categories:[state.tab];
-    const rows=visible(course), matching=C.presentationList(rows,selected);
+    const custom=preferences.mode==='custom';
+    if(!custom&&!preferences.visibleTabs.includes(state.tab))state.tab=preferences.visibleTabs[0]??'proximas';
+    const selected=custom?preferences.categories:preferences.visibleTabs.includes(state.tab)?[state.tab]:[];
+    const rows=visible(course), bounds=C.dateBounds(preferences.dateRange);
+    const filteredRows=C.filterPresentationRows(rows,preferences.activityTypes,bounds);
+    const matching=C.presentationList(filteredRows,selected);
     const list=preferences.limit===null?matching:matching.slice(0,preferences.limit);
     for(const button of panel.querySelectorAll('[data-refresh], [data-reverify-all]'))
       button.disabled=(state.loading&&runningMode!=='periodic')||stopped||!session.userId;
@@ -1058,8 +1154,8 @@
     }
     panel.querySelector('.ugr-note').textContent=state.progress;
     const countsByTab=Object.fromEntries(TABS.map(t=>[t.id,0]));
-    for(const {b} of rows)for(const t of TABS)if(C.matchesCategory(t.id,b))countsByTab[t.id]++;
-    for(const t of TABS){const b=ui(`[data-tab="${t.id}"]`);b.classList.toggle('active',t.id===state.tab);b.setAttribute('aria-selected',String(t.id===state.tab));b.querySelector('span').textContent=countsByTab[t.id];}
+    for(const {b} of filteredRows)for(const t of TABS)if(C.matchesCategory(t.id,b))countsByTab[t.id]++;
+    for(const t of TABS){const b=ui(`[data-tab="${t.id}"]`);b.hidden=!preferences.visibleTabs.includes(t.id);b.classList.toggle('active',!b.hidden&&t.id===state.tab);b.setAttribute('aria-selected',String(!b.hidden&&t.id===state.tab));b.querySelector('span').textContent=countsByTab[t.id];}
     const scrollTop=ul.scrollTop, wanted=new Set(list.map(key));
     for(const [id,n] of nodes) if(!wanted.has(id)){n.remove();nodes.delete(id);}
     list.forEach((it,index)=>{
@@ -1069,10 +1165,12 @@
     });
     ul.scrollTop=scrollTop;
     ul.hidden=!list.length;
-    const empty=ui('.ugr-empty'), noCategories=custom&&!selected.length;
+    const empty=ui('.ugr-empty'), noCategories=!selected.length, noTypes=!preferences.activityTypes.length;
     empty.hidden=!!list.length;
     empty.querySelector('[data-reset-categories]').hidden=!noCategories;
-    ui('[data-empty-message]').textContent=noCategories?'Selecciona al menos una categoría para ver actividades.':state.loading?'Cargando…':'Nada por aquí.';
+    empty.querySelector('[data-reset-types]').hidden=!noTypes;
+    empty.querySelector('[data-clear-date]').hidden=!bounds||noTypes||noCategories;
+    ui('[data-empty-message]').textContent=noTypes?'Selecciona al menos un tipo de actividad para ver resultados':noCategories?'Selecciona al menos una categoría para ver actividades.':state.loading?'Cargando…':bounds?'No hay actividades en el rango de fechas seleccionado':'Nada por aquí.';
     const listInfo=ui('[data-list-info]'), info=`Mostrando ${list.length} de ${matching.length} actividades`;
     if(listInfo.textContent!==info)listInfo.textContent=info;
     const activeFilters=ui('[data-active-filters]');
@@ -1087,7 +1185,7 @@
       else records.push({...record,...(record.stage==='activity'?{recoveryFailed:f.recoveryFailed===true}:{}),
         ...(state.store.manual[k]!==undefined?{manualOverride:true}:{}),retryInMinutes:Math.max(0,Math.ceil((f.retryAt-Date.now())/60000))});
     }
-    const effective={manualPending:0,unknown:0,persistentActivityFailures:0,completed:{automatic:0,manual:0,historical:0,historicalUnknown:0,staleAutomatic:0}};
+    const effective={manualPending:0,unknown:0,persistentActivityFailures:0,completed:{automatic:0,manual:0,historical:0,historicalUnknown:0,staleAutomatic:0,gradedWithoutSubmission:0}};
     for(const {it,b} of rows){
       const status=completion(it);
       if(it.mod==='forum'&&!status.done)effective.manualPending++;
@@ -1096,7 +1194,7 @@
       }
       if(it.mod!=='forum'&&failures[key(it)]?.recoveryFailed)effective.persistentActivityFailures++;
       if(b==='entregadas'){
-        const category=staleDelivered(it)?'staleAutomatic':status.source==='historical_unknown'?'historicalUnknown':status.source==='moodle'||status.source==='heuristic'?'automatic':status.source;
+        const category=status.source!=='manual'&&evaluationGrade(it)?'gradedWithoutSubmission':staleDelivered(it)?'staleAutomatic':status.source==='historical_unknown'?'historicalUnknown':status.source==='moodle'||status.source==='heuristic'?'automatic':status.source;
         effective.completed[category]++;
       }
     }
@@ -1105,7 +1203,7 @@
     const activeSummary=records.length ? Object.entries(counts).map(([code,n])=>`${C.ERROR_LABELS[code]}: ${n}`).join(' · ') : 'Sin fallos activos.';
     displayStatus(records);
     panel.querySelector('[data-diagnostic-summary]').textContent=`${activeSummary} · ${historicalForumFailures.length} fallos históricos de foro conservados.`;
-    panel.querySelector('#ugr-diagnostics').textContent=JSON.stringify({version:VERSION,lastRun,
+    panel.querySelector('#ugr-diagnostics').textContent=JSON.stringify({version:VERSION,detectorRevision:"quiz-opening-ug-header-3",lastRun,
       autoRefreshEnabled:preferences.autoRefreshMinutes>0,autoRefreshIntervalMinutes:preferences.autoRefreshMinutes,
       lastPeriodicRun:lastPeriodicRun||null,nextPeriodicRun,lastPeriodicResult,
       effective,activeFailures:records,historicalForumFailures,recentIncidents:incidents},null,2);
@@ -1137,6 +1235,32 @@
     }
   }
   panel.addEventListener('click',e=>{
+    const quickFilter=e.target.closest('[data-quick-filter]');
+    if(quickFilter){
+      if(quickFilter.getAttribute('aria-expanded')==='true')closeQuickFilter();
+      else displayQuickFilter(quickFilter);
+      return;
+    }
+    if(e.target.closest('[data-close-quick-filter]')){closeQuickFilter();return;}
+    const preset=e.target.closest('[data-date-preset]')?.dataset.datePreset;
+    const clearDate=e.target.closest('[data-clear-date]');
+    if(preset||clearDate){
+      updatePresentation({dateRange:preset&&preset!==preferences.dateRange?.preset?{preset}:null});
+      displayDateRange(true);
+      if(clearDate?.closest('.ugr-empty'))ui('[data-quick-filter="date"]').focus();
+      return;
+    }
+    if(e.target.closest('[data-apply-date]')){
+      const start=ui('[data-date-from]'), end=ui('[data-date-to]');
+      const range=C.dateRange({from:start.value,to:end.value});
+      if(!start.validity.valid||!end.validity.valid||(start.value&&range?.from!==start.value)||(end.value&&range?.to!==end.value)){
+        ui('#ugr-date-error').textContent='Introduce fechas válidas. Desde no puede ser posterior a Hasta.';
+        return;
+      }
+      updatePresentation({dateRange:range});
+      displayDateRange(true);
+      return;
+    }
     if(e.target.closest('[data-personalize]')){
       settings.hidden=!settings.hidden;
       ui('[data-personalize]').setAttribute('aria-expanded',String(!settings.hidden));
@@ -1154,11 +1278,20 @@
       return;
     }
     if(e.target.closest('[data-reset-title]')){updatePresentation({title:C.presentation().title});return;}
-    if(e.target.closest('[data-select-all]')){updatePresentation({categories:C.categories});return;}
+    if(e.target.closest('[data-select-all]')){updatePresentation({[categoryPreference()]:C.categories});return;}
+    if(e.target.closest('[data-deselect-categories]')){updatePresentation({[categoryPreference()]:[]});return;}
+    if(e.target.closest('[data-deselect-types]')){updatePresentation({activityTypes:[]});return;}
+    const resetTypes=e.target.closest('[data-reset-types]');
+    if(resetTypes||e.target.closest('[data-select-types]')){
+      updatePresentation({activityTypes:C.presentation().activityTypes});
+      if(resetTypes)ui('[data-personalize]').focus();
+      return;
+    }
     const resetCategories=e.target.closest('[data-reset-categories]');
     if(resetCategories){
-      updatePresentation({categories:C.presentation().categories});
-      if(!settings.contains(resetCategories))ui('[data-personalize]').focus();
+      const field=categoryPreference();
+      updatePresentation({[field]:C.presentation()[field]});
+      ui('[data-personalize]').focus();
       return;
     }
     if(e.target.closest('[data-reset-presentation]')){
@@ -1188,6 +1321,12 @@
     const toggle=e.target.closest('[data-toggle]');if(!toggle || stopped) return;
     changeManual(toggle.dataset.toggle);
   });
+  ui('[data-quick-filters]').addEventListener('keydown',e=>{
+    if(e.key!=='Escape'||!ui('[data-quick-filter][aria-expanded="true"]'))return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeQuickFilter();
+  });
   panel.addEventListener('dblclick',e=>{
     if(!e.target.closest('.ugr-source') || stopped)return;
     const id=e.target.closest('li')?.dataset.id;
@@ -1209,9 +1348,10 @@
       updatePresentation({autoRefreshMinutes:Number(input.value)});
       return;
     }
-    if(input.matches('[data-category]')){
-      const categories=[...settings.querySelectorAll('[data-category]:checked')].map(box=>box.value);
-      updatePresentation({categories});
+    if(input.matches('[data-category], [data-activity-type]')){
+      const category=input.matches('[data-category]');
+      const selector=category?'[data-category]:checked':'[data-activity-type]:checked';
+      updatePresentation({[category?categoryPreference():'activityTypes']:[...input.closest('fieldset').querySelectorAll(selector)].map(box=>box.value)});
       return;
     }
     const field=['course','mode','position','size','limit'].find(name=>input.hasAttribute(`data-${name}`));
