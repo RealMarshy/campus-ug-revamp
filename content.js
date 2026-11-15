@@ -2,14 +2,15 @@
   'use strict';
   if (document.getElementById('ugr-panel')) return;
   const C = UGCore, CFG = C.CONFIG, MODS = C.mods, ORIGIN = location.origin;
-  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.5.0';
+  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.5.1';
+  const SESSION_REDIRECT_RETRY_MS=30_000;
   const session = C.identity(document);
   const prefix = `ugr2:${ORIGIN}:${session.userId}:`;
   const historyKey=prefix+'history', lockName='campus-ug-revamp:'+session.userId;
   const manualLockName=lockName+':manual';
   const stampKey=prefix+'verification', queued=new Map();
   const presentationKey=prefix+'presentation';
-  let stamps={}, calendarTimes={}, calendarRefreshes={}, exhaustiveAt=0, history={schema:1,changes:[]};
+  let stamps={}, calendarTimes={}, calendarRefreshes={}, exhaustiveAt=0, refreshSessionAt=0, history={schema:1,changes:[]};
   let failures={}, incidents=[], lastRun={};
   const TABS = C.categories.map((id,index)=>({id,label:['Próximas','Atrasadas','Entregadas','Pendientes','Sin verificar'][index]}));
   const TYPES = Object.entries({assign:'Tareas',quiz:'Cuestionarios',forum:'Foros',feedback:'Encuestas'});
@@ -87,6 +88,8 @@
       ? stored.exhaustiveAt:0;
     calendarRefreshes={};
     const observedNow=performance.timeOrigin+performance.now();
+    refreshSessionAt=Number.isFinite(stored?.refreshSessionAt)&&stored.refreshSessionAt>0&&stored.refreshSessionAt<=observedNow
+      ? stored.refreshSessionAt:0;
     for(const {key,historical} of months()){
       const t=stored?.calendarRefreshes?.[key];
       if(!historical && Number.isFinite(t) && t>0 && t<=observedNow)calendarRefreshes[key]=t;
@@ -161,7 +164,8 @@
     const values={};
     if(changes.length)values[historyKey]=next;
     if(saveStamps)values[stampKey]={schema:1,records:stamps,calendar:calendarTimes,exhaustiveAt,
-      ...(Object.keys(calendarRefreshes).length?{calendarRefreshes}:{}),...(lastPeriodicRun?{lastPeriodicRun}:{})};
+      ...(Object.keys(calendarRefreshes).length?{calendarRefreshes}:{}),...(lastPeriodicRun?{lastPeriodicRun}:{}),
+      ...(refreshSessionAt?{refreshSessionAt}:{})};
     try{await chrome.storage.local.set(values);}
     catch{throw C.problem('STORAGE');}
     history=next;
@@ -259,7 +263,7 @@
     let finalMessage='';
     let archived=0, reactivated=0, cacheHits=0, changed=0, detected=0, unknownClose=0, shared=false, saveStamps=periodic;
     const recovered={forum:0,assign:0,quiz:0,feedback:0};
-    let quizOpening,assignGroup;
+    let quizOpening,assignGroup,sessionProbe,refreshRedirect=false;
     const recognizedAbsences={quiz_no_attempts:0,quiz_unavailable:0,quiz_not_yet_open:0,quiz_scheduled:0,quiz_closed_unknown:0};
     lastRun={mode,trigger,manual,checked:0,activityErrors:0,calendarErrors:0,skipped:0,recovered,recognizedAbsences};
     try{
@@ -273,9 +277,25 @@
       }
       if(mode!=='one'){
         if(!session.sesskey) throw C.problem('SESSION_EXPIRED');
-        if(!force && failures.session && (Date.now()<failures.session.retryAt||(periodic&&serverWaiting(failures.session)))){
-          finalMessage='Comprobación de sesión en espera por un fallo anterior.';return;
+        const failure=failures.session, now=Date.now();
+        if(refresh&&refreshSessionAt>=requestedAt){
+          shared=true;sessionProbe='shared';
+          finalMessage=failure?'Comprobación de sesión en espera por un fallo anterior.':
+            'Actualización finalizada. Se reutilizó la actualización de otra pestaña.';
+          return;
         }
+        const backoff=failure&&(now<failure.retryAt||(periodic&&serverWaiting(failure)));
+        const redirectRetry=refresh&&failure?.code==='REDIRECT'&&
+          (failure.attempts===1||now-failure.t>=SESSION_REDIRECT_RETRY_MS);
+        if(!force&&backoff&&!redirectRetry){
+          sessionProbe='waiting';
+          finalMessage=refresh&&failure.code==='REDIRECT'
+            ? 'La redirección sigue bloqueada. Vuelve a intentar cuando hayan pasado 30 segundos desde la última comprobación.'
+            : 'Comprobación de sesión en espera por un fallo anterior.';
+          return;
+        }
+        sessionProbe='requested';
+        refreshRedirect=refresh&&failure?.code==='REDIRECT';
         // Confirms the current cookie account before storing any remote data.
         const page=new DOMParser().parseFromString(await request(`${ORIGIN}/my/`),'text/html');
         C.checkIdentity(page,session.userId);resolveFailure(changes,'session');
@@ -444,9 +464,12 @@
     }catch(e){
       if(cancelled)finalMessage='Reverificación cancelada.';
       else if(!stopped){
+        if(refresh&&sessionProbe==='requested'&&e.code==='REDIRECT')refreshRedirect=true;
         recordFailure(changes,'session',e,'session');
         if(periodic&&e.code==='IDENTITY_CONFLICT')stop();
-        fail(C.ERROR_LABELS[e.code]||C.ERROR_LABELS.INTERNAL);
+        fail(e.code==='REDIRECT'&&sessionProbe==='requested'
+          ? 'Moodle redirigió la comprobación de sesión. Vuelve al Área personal y pulsa Actualizar.'
+          : C.ERROR_LABELS[e.code]||C.ERROR_LABELS.INTERNAL);
       }
     }
     finally{
@@ -454,13 +477,14 @@
       if(!stopped){
         if(force){state.progress='Finalizando sincronización…';render();}
         const finishedAt=performance.timeOrigin+performance.now();
+        if(refreshRedirect&&!cancelled){refreshSessionAt=finishedAt;saveStamps=true;}
         if(!cancelled)for(const month of refreshedRecent)calendarRefreshes[month]=finishedAt;
         try{await append(changes,saveStamps);}catch{fail('No se guardaron los cambios de esta ejecución. Comprueba el espacio disponible.');}
         state.progress=finalMessage||'Sincronización detenida. Consulta Diagnóstico.';
       }else state.progress='Sincronización detenida.';
       metrics.syncMs=Math.round(performance.now()-start);
       lastRun={mode,trigger,manual,checked,activityErrors:errors,calendarErrors,skipped,calendarWaiting,
-        ...(quizOpening?{quizOpening}:{}),...(assignGroup?{assignGroup}:{}),calendarRequested,calendarReused,calendarShared,newActivities,recovered,recognizedAbsences,detected,unknownClose,changed,archived,reactivated,cacheHits,shared,reverified:force||mode==='one'?checked:0,durationMs:metrics.syncMs,
+        ...(quizOpening?{quizOpening}:{}),...(assignGroup?{assignGroup}:{}),...(sessionProbe?{sessionProbe}:{}),calendarRequested,calendarReused,calendarShared,newActivities,recovered,recognizedAbsences,detected,unknownClose,changed,archived,reactivated,cacheHits,shared,reverified:force||mode==='one'?checked:0,durationMs:metrics.syncMs,
         initialChecked:checked,initialErrors,retriesAttempted,recoveredAfterRetry,persistentErrors,
         initialDurationMs,recoveryDurationMs,retryConcurrency:retriesAttempted?1:0,timeoutPhase,recoveryDeferred:retryQueue.size-retriesAttempted,cancelled};
       if(periodic)lastPeriodicResult={...lastRun,startedAt:lastPeriodicRun,interrupted:!proceed()};

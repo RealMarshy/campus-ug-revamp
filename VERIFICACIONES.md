@@ -1,5 +1,34 @@
 # Verificaciones de Campus UG Revamp
 
+## Recuperación de sesión y recargas · 2.5.1
+
+En 2.5.0, la condición `!force` aplicaba la espera de `failures.session` a Actualizar, a la sincronización normal y a la periódica antes de consultar la sesión. El modo individual ya omitía esa consulta y comprobaba la identidad de la actividad. Reverificar todo evitaba esa espera y conservaba su alcance de seis meses. Chrome reprodujo un 302 sintético rechazado en la consulta a `/my/`, seguido de cero lecturas al pulsar Actualizar cuando la sesión ya era válida.
+
+Actualizar permite una comprobación inmediata tras el primer `REDIRECT` consecutivo. Si la respuesta vuelve a ser una redirección, se admite como máximo una comprobación manual cada 30 segundos mientras dure la espera automática, que comienza en 30 minutos y se duplica por cada fallo consecutivo hasta seis horas. Los demás fallos conservan sus reglas y el modo individual conserva su comportamiento. Si la identidad se valida, se limpia el fallo y se procesan calendario y actividades según la política habitual de Actualizar. Si la identidad falla, la ejecución termina antes del calendario. Las respuestas 3xx y `opaqueredirect` siguen rechazándose con `redirect: "manual"` y credenciales limitadas al mismo origen.
+
+El Web Lock por cuenta serializa las ejecuciones. Tras una redirección, el sello opcional `refreshSessionAt` en el registro de verificación existente permite que una segunda pulsación simultánea reutilice el resultado de la primera sin hacer peticiones ni escribir datos académicos. Las actualizaciones simultáneas con sesión sana conservan su coordinación de calendario existente. El sello es local y la versión del esquema se conserva. Diagnóstico distingue los resultados `requested`, `shared` y `waiting` en `lastRun.sessionProbe`.
+
+### Comparación reproducible de F5
+
+Se ejecuta con `node tests/run-browser.cjs session-baseline session` y `UG_PLAYWRIGHT_CLI` configurado. La referencia carga los scripts del tag local `v2.5.0`. Los datos, el calendario y la sesión son sintéticos. Se hicieron tres recargas por escenario y versión en Chrome 157. Los tiempos son medianas en milisegundos. Panel y primera fila se observan desde el inicio de navegación. JavaScript es el delta observado de `ScriptDuration` de Chrome durante cada recarga, que incluye el fixture y varía según cómo se reutiliza el proceso.
+
+| Escenario | Versión | Panel | Primera fila | Sincronización | JavaScript | Renderizados | HTTP Revamp |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Caché vigente | 2.5.0 | 24,9 | 28,8 | 11 | 2,33 | 8 | 1 |
+| Caché vigente | 2.5.1 | 23,9 | 28,0 | 11 | 2,41 | 8 | 1 |
+| REDIRECT en espera | 2.5.0 | 22,1 | 26,2 | 1 | 0,25 | 8 | 0 |
+| REDIRECT en espera | 2.5.1 | 21,2 | 25,8 | 1 | 2,45 | 8 | 0 |
+| Después de recuperar | 2.5.0 | 21,8 | 26,1 | 11 | 0,05 | 8 | 1 |
+| Después de recuperar | 2.5.1 | 21,3 | 25,5 | 10 | 2,25 | 8 | 1 |
+
+La diferencia de la primera fila fue inferior a 1 ms en los tres escenarios de la corrida final. La primera corrida registró variaciones de hasta 6 ms y el delta de JavaScript mostró variabilidad entre recargas. Los conteos de renderizados y HTTP se conservaron. Estas mediciones locales no permiten atribuir la lentitud observada en Moodle UG a Revamp.
+
+Tras desbloquear el fixture con una actividad nueva, Actualizar pasó de cero solicitudes en 2.5.0 a una comprobación de sesión, tres meses de calendario y una lectura de la nueva actividad en 2.5.1. Dos pestañas simultáneas compartieron una comprobación y tres lecturas de calendario. El ZIP extraído cargó en Chrome 157 y reanudó sesión, calendario y actividad después de un 302 sintético. El paquete público de ocho archivos pesa **75.125 bytes**. SHA-256 `7347FF91EA05EEE49E04D07B716EFE6CD2EDBE52C53DD70892EDF8924466A280`.
+
+Pasaron **43 pruebas Node y 858 comprobaciones en 26 suites de Chrome**, sin fallos ni omisiones. La suite nueva aportó 22 comprobaciones y la comparación con 2.5.0 aportó cuatro. La primera corrida conjunta detectó que la coordinación abarcaba también una sesión sana. Se acotó la coordinación nueva a las actualizaciones relacionadas con `REDIRECT` y se repitió toda la batería. Las regresiones existentes verifican la compatibilidad del almacenamiento, las calificaciones, las declaraciones y el funcionamiento local de los filtros.
+
+En Moodle UG, recarga la extensión existente y el Área personal. Si vuelve a aparecer un `REDIRECT`, vuelve al Área personal con sesión válida y pulsa Actualizar. Revisa que `lastRun.sessionProbe` indique `requested` o `shared`, que desaparezca el fallo activo de sesión y que el calendario reanude su política de consulta. `checked: 0` puede ser válido si las comprobaciones académicas siguen vigentes.
+
 ## Publicación de 2.5.0
 
 El usuario confirmó en Moodle UG la clasificación de encuestas y cuestionarios cerrados, las tres opciones de declaración manual y las tres variantes de disponibilidad de tareas. La auditoría final volvió a ejecutar 43 pruebas Node y 832 comprobaciones en 24 suites de Chrome. Todas pasaron, sin omisiones. El ZIP final cargó como extensión Manifest V3 en Chrome 157 aislado. La prueba confirmó que el cuestionario cerrado aparece en Pendientes y Sin verificar y que declarar o retirar la decisión no añade solicitudes.

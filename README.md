@@ -1,4 +1,4 @@
-# Campus UG Revamp 2.5.0 — The Daniel Update
+# Campus UG Revamp 2.5.1 (desarrollo)
 
 Extensión comunitaria e independiente para Chrome que reúne las actividades del Área personal de Moodle de la Universidad de Guayaquil. Usa Manifest V3. Este proyecto no es oficial ni está afiliado a la Universidad de Guayaquil o a Moodle.
 
@@ -45,6 +45,8 @@ Para actualizar una instalación existente, coloca los archivos nuevos en la mis
 | Sin verificar | Actividades cuyo estado sigue sin confirmarse. |
 
 **Actualizar** vuelve a consultar el mes actual y los dos siguientes. Aprovecha los datos vigentes y verifica las actividades según su política de revisión. **Reverificar todo** amplía la consulta a seis meses y ofrece una segunda pasada para ciertos errores transitorios. El panel muestra un resumen de las consultas y los fallos.
+
+Si Moodle redirige la comprobación de sesión, vuelve al Área personal y pulsa **Actualizar**. Si la redirección persiste, deja pasar 30 segundos desde la última comprobación manual antes de intentarlo de nuevo.
 
 En **Personalizar** puedes configurar la actualización automática cada 10, 15 o 30 minutos, o desactivarla. Allí también se ajustan la apariencia, el tamaño y la presentación de las categorías. **Diagnóstico de verificaciones** muestra la versión, el alcance de la última ejecución y los motivos de los fallos.
 

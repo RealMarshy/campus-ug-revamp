@@ -1,5 +1,5 @@
 'use strict';
-const {spawn,spawnSync}=require('node:child_process');
+const {spawn,spawnSync,execFileSync}=require('node:child_process');
 const {readFileSync,writeFileSync,unlinkSync}=require('node:fs');
 const {join}=require('node:path');
 const {tmpdir}=require('node:os');
@@ -7,7 +7,7 @@ const {randomUUID}=require('node:crypto');
 const {setTimeout:wait}=require('node:timers/promises');
 const cli=process.env.UG_PLAYWRIGHT_CLI;
 if(!cli)throw Error('Define UG_PLAYWRIGHT_CLI con la ruta a cli.js de Playwright CLI.');
-const all=['recovery','optimization','quiz-first-attempt','browser','robustness','migration','diagnostic','presentation','discovery','discovery-2.0.6','discovery-alternative','credits','periodic','periodic-baseline','appearance','ambient','ambient-baseline','header','universal','universal-baseline','evidence','evidence-baseline','feedback'];
+const all=['recovery','optimization','quiz-first-attempt','browser','robustness','migration','diagnostic','presentation','discovery','discovery-2.0.6','discovery-alternative','credits','periodic','periodic-baseline','appearance','ambient','ambient-baseline','header','universal','universal-baseline','evidence','evidence-baseline','feedback','session'];
 const suites=process.argv.slice(2).length?process.argv.slice(2):all;
 const server=spawn(process.execPath,['tests/fixture-server.cjs'],{stdio:['ignore','pipe','inherit']});
 const session='ug-sandbox-'+process.pid;
@@ -38,7 +38,7 @@ const guard=`async page=>{
     wait(5000).then(()=>{throw Error('El fixture no respondió');})
   ]);
   for(const suite of suites){
-   if(!all.includes(suite)&&suite!=='recovery-baseline')throw Error('Suite desconocida: '+suite);
+   if(!all.includes(suite)&&!['recovery-baseline','session-baseline'].includes(suite))throw Error('Suite desconocida: '+suite);
    try{
     run('open','about:blank','--browser=chrome');
     const baseline=suite==='recovery-baseline';
@@ -49,10 +49,17 @@ const guard=`async page=>{
     const evidence=suite==='evidence'||suite==='evidence-baseline';
     const universal=suite==='universal'||suite==='universal-baseline';
     const reference=discovery&&suite!=='discovery'?readFileSync(join(__dirname,'references','2.0.6','content.js'),'utf8'):null;
-    const code=readFileSync('tests/'+(baseline?'recovery':discovery?'discovery':periodic?'periodic':ambient?'ambient':universal?'universal':evidence?'evidence':suite)+'-check.js','utf8');
+    const sessionSuite=suite==='session'||suite==='session-baseline';
+    const code=readFileSync('tests/'+(sessionSuite?'session':baseline?'recovery':discovery?'discovery':periodic?'periodic':ambient?'ambient':universal?'universal':evidence?'evidence':suite)+'-check.js','utf8');
     // Legacy suites expect a loaded fixture, whereas the new suites configure routes first.
     let preload="if(!(await page.request.get(origin+'/mode?value=normal')).ok())throw Error('No se pudo restablecer el fixture.');";
-    if(!discovery&&!periodic&&!ambient&&!universal&&!evidence&&!['optimization','quiz-first-attempt','recovery','recovery-baseline','presentation','header','feedback'].includes(suite))preload+='await page.goto(origin);';
+    if(!sessionSuite&&!discovery&&!periodic&&!ambient&&!universal&&!evidence&&!['optimization','quiz-first-attempt','recovery','recovery-baseline','presentation','header','feedback'].includes(suite))preload+='await page.goto(origin);';
+    if(suite==='session-baseline'){
+      for(const file of ['core.js','content.js']){
+        const body=JSON.stringify(execFileSync('git',['show','v2.5.0:'+file],{encoding:'utf8'}));
+        preload+=`await page.route(origin+\'/${file}\',route=>route.fulfill({contentType:'text/javascript',body:${body}}));`;
+      }
+    }
     if(suite==='feedback')preload+='await page.addInitScript({content:'+JSON.stringify(
       readFileSync(join(__dirname,'feedback-prototype.cjs'),'utf8')+
       '\nglobalThis.fixtureFeedback={feedbackSchedule,feedbackCategory,recognizeFeedback};')+'});';

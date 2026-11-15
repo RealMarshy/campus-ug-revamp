@@ -2,6 +2,10 @@
 
 Este historial resume las versiones de Revamp, derivado de [Panel de Tareas UG](https://github.com/danieIabel/campus-ug).
 
+## 2.5.1 (desarrollo)
+
+- Actualizar puede volver a comprobar la sesión tras una redirección bloqueada. Las actualizaciones manuales simultáneas se coordinan entre pestañas. La actualización automática conserva su espera.
+
 ## 2.5.0 — The Daniel Update
 
 - Las encuestas y los cuestionarios con cierre confirmado y participación desconocida aparecen en Pendientes y Sin verificar. La lista combinada muestra una sola fila por actividad.
