@@ -14,6 +14,8 @@ Una encuesta o un cuestionario con cierre confirmado y participación desconocid
 
 Usa **Participación** en foros y encuestas elegibles, o **Realización** en cuestionarios cerrados sin historial. En tareas y otros cuestionarios, **✓** sigue disponible para declarar que completaste la actividad cuando Moodle no ha confirmado su realización. El selector permite cambiar o retirar la declaración después. **Sin declarar** recupera el último estado conocido sin consultar Moodle. Una finalización o evaluación verificada conserva prioridad.
 
+Cada fila distingue lo que Moodle confirmó, lo que declaraste y la disponibilidad conocida. Por ejemplo, una tarea sin envío puede decir **No entregada según Moodle · Necesitas pertenecer a un grupo**. Si la participación es incierta, el panel lo indica. **Verificado el** muestra la fecha asociada a la evidencia de Moodle. Los detalles técnicos de las consultas se encuentran en Diagnóstico.
+
 El resumen y el diagnóstico aparecen ocultos si la cuenta todavía no tiene una ubicación guardada. En **Personalizar → Ubicación del estado**, selecciona Arriba, Abajo u Oculto. **Mostrar estado** recupera la última ubicación visible. La selección se guarda por cuenta y **Cancelar verificación** sigue disponible durante una reverificación.
 
 ## Qué ofrece
@@ -46,7 +48,7 @@ Para actualizar una instalación existente, coloca los archivos nuevos en la mis
 
 **Actualizar** vuelve a consultar el mes actual y los dos siguientes. Aprovecha los datos vigentes y verifica las actividades según su política de revisión. **Reverificar todo** amplía la consulta a seis meses y ofrece una segunda pasada para ciertos errores transitorios. El panel muestra un resumen de las consultas y los fallos.
 
-Si Moodle redirige la comprobación de sesión, vuelve al Área personal y pulsa **Actualizar**. Si la redirección persiste, deja pasar 30 segundos desde la última comprobación manual antes de intentarlo de nuevo.
+Si el panel indica que no pudo comprobar tu sesión, vuelve al Área personal y pulsa **Actualizar**. Si el aviso indica que la sesión está en espera, deja pasar 30 segundos desde la última comprobación manual antes de intentarlo de nuevo.
 
 En **Personalizar** puedes configurar la actualización automática cada 10, 15 o 30 minutos, o desactivarla. Allí también se ajustan la apariencia, el tamaño y la presentación de las categorías. **Diagnóstico de verificaciones** muestra la versión, el alcance de la última ejecución y los motivos de los fallos.
 

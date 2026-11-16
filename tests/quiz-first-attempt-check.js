@@ -46,7 +46,7 @@ async page => {
   };
   await page.getByRole('tab',{name:/^Próximas/}).click();
   results.quizListed = await page.getByRole('link',{name:'Cuestionario de redes',exact:true}).count()===1;
-  results.availableLabel=await page.getByText('No iniciado · Disponible para realizar',{exact:true}).count()===1;
+  results.availableLabel=await page.getByText('No iniciado según Moodle · Puedes realizar el cuestionario').count()===1;
   const clock=await page.evaluateHandle(()=>Date.now);
   await page.evaluate(now=>{Date.now=()=>now()+7*86400000;},clock);
   await page.getByRole('tab',{name:/^Atrasadas/}).click();
@@ -348,7 +348,7 @@ async page => {
   await settled();
   await page.getByRole('tab',{name:/^Próximas/}).click();
   results.scheduledUpcoming=await quizRow.isVisible()&&
-    (await quizRow.locator('.ugr-source').textContent()).startsWith('Todavía no disponible · Abre el ');
+    (await quizRow.locator('.ugr-source').textContent()).startsWith('Participación sin confirmar · Abre el ');
   await page.getByRole('tab',{name:/^Pendientes/}).click();
   results.scheduledPending=await quizRow.isVisible();
   await page.reload();await settled();
@@ -358,14 +358,20 @@ async page => {
   results.scheduleSimpleView=await quizRow.isVisible();
   servedQuiz=quizPage;
   await reverify();await settled();
-  results.availableAfterSchedule=await quizRow.locator('.ugr-source').textContent()==='No iniciado · Disponible para realizar';
+  results.availableAfterSchedule=await quizRow.locator('.ugr-source').textContent().then(text=>text.startsWith('No iniciado según Moodle · Puedes realizar el cuestionario · Verificado el '));
   servedQuiz=completedPage;
   await reverify();await settled();
   await page.locator('[data-mode]').selectOption('tabs');
   await page.getByRole('tab',{name:/^Entregadas/}).click();
+  const confirmedQuizLabel=await quizRow.locator('.ugr-source').textContent();
+  const realNow=await page.evaluateHandle(()=>Date.now);
+  await page.evaluate(now=>{Date.now=()=>now()+2*60000;},realNow);
   servedQuiz=schedulePage;
   await reverify();await settled();
   results.schedulePreservesCompletion=await quizRow.isVisible()&&await quizRow.locator('.ugr-grade').count()===1;
+  results.schedulePreservesVerificationDate=confirmedQuizLabel.includes('Verificado el ')&&
+    await quizRow.locator('.ugr-source').textContent()===confirmedQuizLabel;
+  await page.evaluate(now=>{Date.now=now;},realNow);
   await page.unroute(origin+'/lib/ajax/service.php?*');
   await page.route(origin+'/lib/ajax/service.php?*',async route=>{
     const response=await route.fetch(), data=await response.json();
@@ -381,7 +387,7 @@ async page => {
   await page.goto(origin);await settled();
   await page.getByRole('tab',{name:/^Sin verificar/}).click();
   const closedReport=await diagnostics();
-  results.closedInPanel=await quizRow.locator('.ugr-source').textContent()==='Cuestionario cerrado · Participación sin confirmar'&&
+  results.closedInPanel=await quizRow.locator('.ugr-source').textContent().then(text=>text.startsWith('Participación sin confirmar · Cuestionario cerrado · Verificado el '))&&
     closedReport.lastRun.recognizedAbsences.quiz_closed_unknown===1&&closedReport.lastRun.activityErrors===0&&closedReport.activeFailures.length===0;
   const counter=category=>page.locator('[data-tab="'+category+'"] span').textContent().then(Number);
   const pendingBefore=await counter('pendientes'), unknownBefore=await counter('desconocidas');
@@ -400,7 +406,7 @@ async page => {
   results.closedSingleGet=reads.length===beforeClosedRead+1&&reads.at(-1)==='GET';
   await page.reload();await settled();
   await page.getByRole('tab',{name:/^Sin verificar/}).click();
-  results.closedPersisted=await quizRow.locator('.ugr-source').textContent()==='Cuestionario cerrado · Participación sin confirmar'&&
+  results.closedPersisted=await quizRow.locator('.ugr-source').textContent().then(text=>text.startsWith('Participación sin confirmar · Cuestionario cerrado · Verificado el '))&&
     await counter('pendientes')===pendingBefore;
   const declaration=quizRow.getByRole('combobox',{name:/Realización · declaración manual/});
   for(const [width,appearance] of [[320,'light'],[360,'dark'],[320,'auto']]){
@@ -434,7 +440,7 @@ async page => {
   await declaration.selectOption('');
   await page.getByRole('tab',{name:/^Sin verificar/}).click();
   results.closedWithdrawsLocally=await declaration.inputValue()===''&&await countRequests()===beforeDeclarations&&
-    await quizRow.locator('.ugr-source').textContent()==='Cuestionario cerrado · Participación sin confirmar';
+    await quizRow.locator('.ugr-source').textContent().then(text=>text.startsWith('Participación sin confirmar · Cuestionario cerrado · Verificado el '));
   results.closedRestoredCounters=await counter('pendientes')===pendingBefore&&await counter('desconocidas')===unknownBefore;
   await declaration.selectOption('no');
   await page.getByRole('tab',{name:/^Pendientes/}).click();
@@ -442,7 +448,7 @@ async page => {
   await reverify();await settled();
   await page.getByRole('tab',{name:/^Entregadas/}).click();
   results.officialCompletionOverridesNegative=await declaration.inputValue()==='no'&&
-    await quizRow.locator('.ugr-source').textContent()==='Entrega confirmada por Moodle · Contradice la declaración manual';
+    await quizRow.locator('.ugr-source').textContent().then(text=>text.startsWith('Cuestionario finalizado según Moodle · Tu declaración indica lo contrario · Verificado el '));
   servedQuiz=closedPage;
   await reverify();await settled();
   results.closedPreservesCompletionAndGrade=await quizRow.isVisible()&&await quizRow.locator('.ugr-grade').textContent()==='Calificación: 0,00/10,00';

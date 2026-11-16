@@ -25,6 +25,10 @@ async (page,baseline=false)=>{
   const feedback=(grade,date='miércoles, 28 de octubre de 2026, 10:39')=>'<div class="feedback"><h3>Comentario</h3>'+
     '<div class="feedbacktable"><table><tr><th>Calificación</th><td>'+grade+'</td></tr>'+
     '<tr><th>Calificado sobre</th><td>'+date+'</td></tr></table></div></div>';
+  const formattedVerification=time=>{
+    const date=new Date(time), pair=n=>String(n).padStart(2,'0');
+    return `Verificado el ${pair(date.getDate())}/${pair(date.getMonth()+1)}/${date.getFullYear()} a las ${pair(date.getHours())}:${pair(date.getMinutes())}`;
+  };
   const noSubmission='<div class="submissionstatustable"><table>'+
     '<tr><th>Estado de la entrega</th><td class="submissionstatus">Todavía no se han realizado envíos</td></tr>'+
     '<tr><th>Estado de la calificación</th><td>Sin calificar</td></tr></table></div>';
@@ -108,7 +112,7 @@ async (page,baseline=false)=>{
   if(baseline)return {passed,measured};
 
   await tab('Sin verificar');
-  for(const [id,label] of [[8,'No iniciado'],[9,'Todavía no disponible'],[10,'Todavía no disponible'],[11,'Todavía no disponible'],
+  for(const [id,label] of [[8,'No iniciado'],[9,'Participación sin confirmar · El cuestionario todavía no está disponible'],[10,'Participación sin confirmar · El cuestionario todavía no está disponible'],[11,'Participación sin confirmar · El cuestionario todavía no está disponible'],
     [14,'Sin verificar'],[15,'Sin verificar'],[16,'Sin verificar']]){
     check((await row(id).locator('.ugr-source').textContent()).startsWith(label),'Clasificación de quiz '+id);
   }
@@ -244,7 +248,7 @@ async (page,baseline=false)=>{
   evaluation=feedback('9,00 / 10,00');
   const priorEvaluation=calls.length;
   await reread(3);await tab('Entregadas');
-  check(await row(3).locator('.ugr-source').textContent()==='Calificada sin envío en Moodle'&&
+  check((await row(3).locator('.ugr-source').textContent()).startsWith('Calificada por Moodle · No se registra una entrega · Verificado el ')&&
     await grade(3).textContent()==='Calificación: 9,00 / 10,00'&&calls.length===priorEvaluation+1,'Evaluación sin envío con una sola lectura');
   check((await diag()).effective.completed.gradedWithoutSubmission===1,'Contador de evaluadas sin envío');
   await page.waitForFunction(()=>{
@@ -260,7 +264,7 @@ async (page,baseline=false)=>{
   check((await grade(3).textContent()).startsWith('Última calificación confirmada')&&(await grade(3).textContent()).endsWith('9,00 / 10,00'),'El TTL conserva y etiqueta la nota histórica');
   await page.evaluate(now=>{Date.now=now;},realClock);
   check(await row(3).locator('[data-toggle], [data-manual-choice]').count()===0&&await grade(3).count()===1,'La evaluación verificada conserva su nota y evita contradicciones manuales');
-  await page.waitForFunction(()=>[...document.querySelectorAll('.ugr-source')].some(el=>el.textContent==='Calificada sin envío en Moodle'));
+  await page.waitForFunction(()=>[...document.querySelectorAll('.ugr-source')].some(el=>el.textContent.startsWith('Calificada por Moodle · No se registra una entrega · Verificado el ')));
   await idle();
   const evaluationAccount=await context.newPage();
   other.add(evaluationAccount);await evaluationAccount.goto(origin);await idle(evaluationAccount);await tab('Entregadas',evaluationAccount);
@@ -283,11 +287,9 @@ async (page,baseline=false)=>{
     '<div><span class="date-item-label">Cierre:</span> 13/02/2099 10:00</div></div></header>'+mooveStatus+returnToCourse;
   const beforeNoOption=calls.length;
   await reread(3);
-  const verifiedAt=await page.evaluate(()=>{
-    const stamp=JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':42:verification'].records['assign:3'];
-    return new Date(stamp.t).toLocaleString('es-EC');
-  });
-  const noOptionLabel='No entregada según Moodle · Sin opción para entregar · '+verifiedAt;
+  const assignmentStamp=()=>page.evaluate(()=>JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':42:verification'].records['assign:3'].t);
+  const verifiedAt=formattedVerification(await assignmentStamp());
+  const noOptionLabel='No entregada según Moodle · No aparece la opción para entregar · '+verifiedAt;
   check(await label()===noOptionLabel&&calls.length===beforeNoOption+1,'Apertura futura sin botón y sello exacto en una sola lectura');
   await page.reload();await idle();await tab('Próximas');
   check(await label()===noOptionLabel&&await row(3).locator('.ugr-when > div').first().textContent()===due,
@@ -296,25 +298,27 @@ async (page,baseline=false)=>{
   other.add(availabilityAccount);await availabilityAccount.goto(origin);await idle(availabilityAccount);
   await tab('Próximas',availabilityAccount);
   await row(3,availabilityAccount).locator('[data-reverify]').click();await idle(availabilityAccount);
-  check((await row(3,availabilityAccount).locator('.ugr-source').textContent()).startsWith('No entregada según Moodle · Disponible para agregar entrega')&&
+  check((await row(3,availabilityAccount).locator('.ugr-source').textContent()).startsWith('No entregada según Moodle · Puedes agregar una entrega')&&
     await label()===noOptionLabel,'La disponibilidad de la misma tarea se aísla por cuenta');
   await availabilityAccount.close();
   const futureTask=assignBody;
   assignBody=futureTask+addSubmission;
   await reread(3);
-  check((await label()).startsWith('No entregada según Moodle · Disponible para agregar entrega'),
+  check((await label()).startsWith('No entregada según Moodle · Puedes agregar una entrega'),
     'Un control válido prevalece aunque la apertura del encabezado sea futura');
   assignBody=futureTask;
   await reread(3);
   evaluationOffline=true;
   await reread(3);await tab('Sin verificar');
-  check(!(await label()).includes('Sin opción para entregar')&&(await diag()).activeFailures.some(f=>f.code==='NETWORK'),
+  check(await label()==='Sin verificar · No se pudo comprobar. Puedes volver a intentarlo'&&
+    (await diag()).activeFailures.some(f=>f.code==='NETWORK')&&
+    (await page.locator('.ugr-note[role="status"]').textContent()).startsWith('Actualización finalizada con problemas.'),
     'Un error de lectura conserva el tratamiento conservador');
   evaluationOffline=false;
   assignBody=groupBlocked+addSubmission;
   const beforeBlocked=calls.length;
   await reread(3);await tab('Próximas');
-  check((await label()).startsWith('Sin entrega · Bloqueada por grupo')&&calls.length===beforeBlocked+1,
+  check((await label()).startsWith('No entregada según Moodle · Necesitas pertenecer a un grupo')&&calls.length===beforeBlocked+1,
     'El aviso oficial en español prevalece y llega a la etiqueta con una sola lectura');
   const blockedRun=(await diag()).lastRun;
   check(JSON.stringify(blockedRun.assignGroup)===JSON.stringify({view:'view',hasMain:true,moduleMatches:true,eligible:true,hasStatusTable:true,
@@ -322,50 +326,74 @@ async (page,baseline=false)=>{
     'Diagnóstico individual limitado a señales enumeradas y booleanos');
   check(!await page.evaluate(()=>localStorage.fixture.includes('"assignGroup"')),'El diagnóstico individual no se guarda');
   await page.reload();await idle();await tab('Pendientes');
-  check((await label()).startsWith('Sin entrega · Bloqueada por grupo')&&(await diag()).lastRun.checked===0&&!(await diag()).lastRun.assignGroup,
+  check((await label()).startsWith('No entregada según Moodle · Necesitas pertenecer a un grupo')&&(await diag()).lastRun.checked===0&&!(await diag()).lastRun.assignGroup,
     'La tarea sigue pendiente y el indicador sobrevive a la recarga desde caché');
   assignBody=noSubmission+addSubmission;
   await reread(3);
-  check((await label()).startsWith('No entregada según Moodle · Disponible para agregar entrega'),
+  check((await label()).startsWith('No entregada según Moodle · Puedes agregar una entrega'),
     'La lectura válida reemplaza el bloqueo por disponibilidad de la misma tarea');
   const taskManual=row(3).locator('[data-manual-choice]');
   check(await taskManual.count()===0&&await row(3).locator('[data-toggle]').count()===1,
     'Una tarea que admite entrega conserva el acceso manual existente');
   const manualReads=calls.length;
-  await row(3).locator('[data-toggle]').click();await tab('Entregadas');
+  await row(3).getByRole('button',{name:'Declarar que entregué la tarea'}).press('Enter');await tab('Entregadas');
   check(await taskManual.getByRole('option',{name:'La entregué',exact:true}).count()===1,'Opciones apropiadas para tarea');
+  check(await label()==='Declarada como realizada · Declaración del estudiante','Una declaración positiva no tiene fecha automática ni texto oficial');
   await taskManual.selectOption('no');await tab('Pendientes');
-  check((await label()).startsWith('Declarada no realizada'),'Declaración negativa de tarea');
+  check(await label()==='Declarada como no realizada · Declaración del estudiante','Declaración negativa de tarea');
   await taskManual.selectOption('');
-  check((await label()).startsWith('No entregada según Moodle · Disponible para agregar entrega')&&calls.length===manualReads,
+  check((await label()).startsWith('No entregada según Moodle · Puedes agregar una entrega')&&calls.length===manualReads,
     'Retirar una declaración restaura disponibilidad sin lecturas nuevas');
   assignBody=groupBlocked+feedback('8 / 10');
   await reread(3);await tab('Entregadas');
-  check((await label())==='Calificada sin envío en Moodle'&&await grade(3).textContent()==='Calificación: 8 / 10',
+  check((await label()).startsWith('Calificada por Moodle · No se registra una entrega · Verificado el ')&&await grade(3).textContent()==='Calificación: 8 / 10',
     'La evaluación sin envío conserva su prioridad sobre el bloqueo');
   assignBody=groupBlocked.replace('Todavía no se han realizado envíos','Enviado para calificar')+addSubmission;
   await reread(3);
   check((await label()).startsWith('Entregada según Moodle · ')&&!(await label()).includes('Bloqueada'),
     'La entrega confirmada conserva prioridad sin deducir edición a partir de un control de alta');
   const gradeReport=feedback('8 / 10');
-  const assignmentStamp=()=>page.evaluate(()=>JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':42:verification'].records['assign:3'].t);
   const verifyEditing=async(body,expected)=>{
     const before=calls.length;
     assignBody=body+gradeReport;
     await reread(3);
-    const actual=await label(), stamp=new Date(await assignmentStamp()).toLocaleString('es-EC').replace(/\s/g,' ');
+    const actual=await label(), stamp=formattedVerification(await assignmentStamp());
     const gradeLabel=await grade(3).textContent();
     check(actual===expected+' · '+stamp&&calls.length===before+1&&calls.at(-1)===3&&
       gradeLabel==='Calificación: 8 / 10','Nota, sello y lectura única: '+JSON.stringify({actual,stamp,gradeLabel,reads:calls.slice(before)}));
     return actual;
   };
-  const editable=await verifyEditing(submitted+editSubmission,'Entregada según Moodle · Disponible para editar entrega');
+  const editable=await verifyEditing(submitted+editSubmission,'Entregada según Moodle · Puedes editar tu entrega');
   const editStamp=await assignmentStamp();
   await page.reload();await idle();await tab('Entregadas');
   check(await label()===editable&&await assignmentStamp()===editStamp&&(await diag()).lastRun.checked===0&&
     await grade(3).textContent()==='Calificación: 8 / 10','Edición, calificación y fecha sobreviven a la recarga desde almacenamiento');
-  await verifyEditing(lockedSubmission,'Entregada según Moodle · Sin opción para editar entrega');
+  await verifyEditing(lockedSubmission,'Entregada según Moodle · No puedes editar tu entrega');
   await verifyEditing(submitted+returnToCourse,'Entregada según Moodle');
-  await verifyEditing(submitted+editSubmission,'Entregada según Moodle · Disponible para editar entrega');
+  const lastLabel=await verifyEditing(submitted+editSubmission,'Entregada según Moodle · Puedes editar tu entrega');
+  const readsBeforeLayout=calls.length;
+  await page.locator('[data-personalize]').click();
+  for(const mode of ['tabs','custom']){
+    await page.locator('[data-mode]').selectOption(mode);
+    if(mode==='tabs')await tab('Entregadas');
+    else {
+      const categories=page.locator('[data-quick-filter="categories"]');
+      await categories.click();
+      await page.locator('[data-category][value="entregadas"]').check();
+      await page.locator('[data-category][value="proximas"]').uncheck();
+      await categories.click();
+    }
+    for(const [width,theme] of [[320,'light'],[360,'dark'],[960,'auto']]){
+      await page.setViewportSize({width,height:800});
+      await page.locator('[data-appearance]').selectOption(theme);
+      check(await label()===lastLabel&&await row(3).evaluate(el=>{
+        const source=el.querySelector('.ugr-source');
+        const relation=el.querySelector('.ugr-rel');
+        return el.scrollWidth<=el.clientWidth&&source.scrollWidth<=source.clientWidth&&
+          el.getBoundingClientRect().right<=innerWidth+1&&relation.textContent==='Calificación: 8 / 10';
+      }),`Estado, fecha y nota sin duplicación ni desbordamiento a ${width} px · ${mode} · ${theme}`);
+    }
+  }
+  check(calls.length===readsBeforeLayout,'Cambiar vistas, anchos y temas no añade solicitudes');
   return {passed,measured};
 }

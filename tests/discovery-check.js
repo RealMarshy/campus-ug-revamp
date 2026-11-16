@@ -165,7 +165,7 @@ async (page,_baseline,alternative,reference)=>{
     (await ids()).includes('41')===refreshesCalendar,'Publicación anterior a Actualizar y caché vigente');
   pass(16,currentNormal.requests===(refreshesCalendar?6:1)&&currentNormal.activity===(refreshesCalendar?2:0),'Actualizar poco después conserva estados frescos conocidos');
   if(production)check((await report()).calendarRequested===3&&currentNormal.reused===3&&currentNormal.discovered===2&&
-    (await page.locator('.ugr-note').first().textContent()).includes('3 meses consultados · 3 meses desde caché · 2 actividades nuevas'),
+    (await page.locator('.ugr-note').first().textContent()).includes('3 meses consultados · 3 meses con datos guardados · 2 actividades nuevas'),
     'Resumen y diagnóstico distinguen meses consultados, caché y altas');
   await setTime(start+4*minute);
   const currentFull=await run('all');

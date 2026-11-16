@@ -237,8 +237,9 @@ async page=>{
   check(await status.isHidden() && await setting('position').inputValue()==='hidden','Estado oculto sin preferencia guardada');
   check(await rows.count()===242,'Sin límite predeterminado');
   const futureForum=panel.locator('[data-id="forum:7"]');
+  const futureForumLabel=await futureForum.locator('.ugr-source').textContent();
   check(await futureForum.evaluate(row=>row.classList.contains('ugr-soon'))&&
-    (await futureForum.locator('.ugr-source').textContent())==='Requiere confirmación manual','Foro próximo, ámbar y manual');
+    futureForumLabel==='Participación sin confirmar · Puedes declarar si participaste','Foro próximo, ámbar y manual: '+futureForumLabel);
   const original=await store(), before=await metric(), initialRequests=academicRequests;
   await open();
   check(await setting('personalize').getAttribute('aria-expanded')==='true','Control de personalización accesible');

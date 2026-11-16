@@ -6,6 +6,7 @@ Este historial resume las versiones de Revamp, derivado de [Panel de Tareas UG](
 
 - Actualizar puede volver a comprobar la sesión tras una redirección bloqueada. Las actualizaciones manuales simultáneas se coordinan entre pestañas. La actualización automática conserva su espera.
 - Unifica las etiquetas de tareas sin entrega y distingue las entregas editables de las explícitamente bloqueadas. La señal de edición se comprueba al leer la vista principal de la tarea.
+- Presenta de forma coherente los estados de tareas, cuestionarios, encuestas y foros. Distingue las declaraciones del estudiante de la evidencia de Moodle y muestra la fecha de comprobación cuando corresponde. Simplifica los avisos de actualización y conserva los detalles técnicos en Diagnóstico.
 
 ## 2.5.0 — The Daniel Update
 

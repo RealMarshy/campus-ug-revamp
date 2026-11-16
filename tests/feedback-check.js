@@ -114,15 +114,15 @@ async page=>{
   await page.reload();await idle();
   const row=id=>page.locator('[data-id="feedback:'+id+'"]');
   check(reads.slice().sort((a,b)=>a-b).join(',')==='1,1,2,4,5,18','Una lectura por módulo salvo un 503 recuperado, sin duplicar apertura y cierre');
-  check(await row(1).getByText('Disponible para responder',{exact:true}).isVisible(),'Encuesta disponible en Próximas');
-  check(await row(2).getByText(/Todavía no disponible/).isVisible(),'Apertura futura en Próximas con aviso informativo');
+  check(await row(1).getByText('Participación sin confirmar · Puedes responder la encuesta').isVisible(),'Encuesta disponible en Próximas');
+  check(await row(2).getByText(/Participación sin confirmar · Abre el/).isVisible(),'Apertura futura en Próximas con aviso informativo');
   const choice=id=>row(id).locator('[data-manual-choice]');
   check(await choice(1).count()===0&&await choice(2).count()===0&&await row(1).locator('[data-reverify]').isVisible(),'Disponible y próxima apertura sin selector');
   await page.locator('[data-tab="atrasadas"]').click();
-  check(await row(18).getByText('Disponible para responder',{exact:true}).isVisible()&&await choice(18).count()===0,'Vencida pero disponible según Moodle');
+  check(await row(18).getByText('Participación sin confirmar · Puedes responder la encuesta').isVisible()&&await choice(18).count()===0,'Vencida pero disponible según Moodle');
   check(await page.locator('[data-minimal-warning]').isHidden(),'Sin advertencia por indisponibilidad ni error recuperado');
   await page.locator('[data-tab="entregadas"]').click();
-  check(await row(5).getByText('Entregada · Confirmada por Moodle').isVisible(),'Aviso inequívoco en vista principal del fixture');
+  check(await row(5).getByText('Respondida según Moodle').isVisible(),'Aviso inequívoco en vista principal del fixture');
   await page.reload();await idle();await page.locator('[data-tab="entregadas"]').click();
   check(await row(5).isVisible()&&await choice(5).count()===0&&reads.length===6,'La caché conserva el envío y oculta el selector');
   changed=true;
@@ -138,19 +138,19 @@ async page=>{
   ],['pendientes','proximas']).length);
   check(filtered===1,'Próximas y Pendientes juntas muestran una sola fila');
   await page.locator('[data-tab="desconocidas"]').click();
-  await row(4).getByText('Encuesta cerrada · Participación sin confirmar').waitFor();
+  await row(4).getByText('Participación sin confirmar · Encuesta cerrada').waitFor();
   await row(4).locator('[data-manual-choice]').selectOption('yes');
   await page.locator('[data-tab="entregadas"]').click();
-  await row(4).getByText('Declarada realizada · Confirmación manual').waitFor();
+  await row(4).getByText('Declarada como realizada · Declaración del estudiante').waitFor();
   await row(4).locator('[data-manual-choice]').selectOption('no');
   await page.locator('[data-tab="atrasadas"]').click();
-  await row(4).getByText('Declarada no realizada · Confirmación manual').waitFor();
+  await row(4).getByText('Declarada como no realizada · Declaración del estudiante').waitFor();
   await page.reload();await idle();
   await page.locator('[data-tab="pendientes"]').click();
   check(await row(4).locator('[data-manual-choice]').inputValue()==='no','La declaración negativa persiste tras recargar');
   await row(4).locator('[data-manual-choice]').selectOption('');
   await page.locator('[data-tab="desconocidas"]').click();
-  await row(4).getByText('Encuesta cerrada · Participación sin confirmar').waitFor();
+  await row(4).getByText('Participación sin confirmar · Encuesta cerrada').waitFor();
   await page.locator('[data-tab="pendientes"]').click();
   check(await row(4).count()===1,'Retirar la declaración devuelve la encuesta a Pendientes');
   check(reads.length===7,'Restaurar incertidumbre conserva el estado y no inicia consultas');
@@ -178,7 +178,7 @@ async page=>{
   await page.waitForFunction(()=>JSON.parse(document.querySelector('#ugr-diagnostics').textContent).lastRun.mode==='periodic'&&
     document.querySelector('.ugr-note').textContent.startsWith('Actualización periódica finalizada'),null,{timeout:10000});
   await page.locator('[data-tab="entregadas"]').click();
-  check(await row(1).getByText('Entregada · Confirmada por Moodle').isVisible()&&reads.filter(id=>id===1).length===3,
+  check(await row(1).getByText('Respondida según Moodle').isVisible()&&reads.filter(id=>id===1).length===3,
     'El ciclo periódico detecta la nueva entrega al vencer el TTL');
   return {passed,baselineRequests:baseline.requests,baselineSyncMs:baseline.syncMs,
     feedbackReads:isolatedReads,integratedReads:reads.length,...performance};

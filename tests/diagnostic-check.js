@@ -65,7 +65,7 @@ async page=>{
  check(await page.evaluate(()=>Object.values(JSON.parse(localStorage.fixture)).some(v=>v.changes?.some(c=>c.type==='manual'&&c.value.done===true))), 'Manual retained');
  const first=await diag();check(first.activeFailures[0].attempts===2,'Fallo inicial más recuperación persistente');
  await page.reload();await wait();const warm=await diag();check(warm.lastRun.activityErrors===0&&warm.lastRun.skipped===1,'Cooldown after reload');
- check((await page.locator('[data-minimal-warning]').textContent())==='1 actividad con un fallo persistente.','El fallo de recuperación sigue visible después de recargar');
+ check((await page.locator('[data-minimal-warning]').textContent())==='1 actividad sigue sin comprobarse.','El fallo de recuperación sigue visible después de recargar');
  check(warm.activeFailures.length===1,'Previous incidence remains accessible');
  await page.evaluate(()=>{window.confirm=()=>true;});await page.getByRole('button',{name:'Reverificar todo',exact:true}).click();await wait();check((await diag()).activeFailures[0].attempts===4,'Ronda explícita más un reintento para el HTTP 503 persistente');
  await page.evaluate(()=>fetch('/mode?value=normal'));await page.evaluate(()=>{window.confirm=()=>true;});await page.getByRole('button',{name:'Reverificar todo',exact:true}).click();await wait();check((await diag()).activeFailures.length===0,'Recovery removes failure');

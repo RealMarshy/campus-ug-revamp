@@ -1,5 +1,34 @@
 # Verificaciones de Campus UG Revamp
 
+## Terminología estudiantil · 2.5.1
+
+El inventario previo encontró tres capas de texto en `content.js`. `sourceLabel` combinaba resultados del detector, disponibilidad, declaraciones y marcas de tiempo. `itemHtml` repetía «Entregada» y «Sin verificar» junto al vencimiento e incluía la nota. `manualChoice` explicaba las opciones por módulo, mientras el botón ✓ decía «Marcar como entregada», incluso para cuestionarios. `synchronize`, `load` y `displayStatus` mostraban el progreso, los resultados de consultas, la espera y los avisos. El resumen visible hablaba de «caché» y «fallos persistentes», y algunas filas mostraban el código traducido y la hora de reintento. Diagnóstico conserva el código, los contadores y los detalles originales.
+
+| Módulo y evidencia disponible | Texto principal | Información adicional |
+| --- | --- | --- |
+| Tarea con ausencia de entrega confirmada | No entregada según Moodle | Puedes agregar una entrega / No aparece la opción para entregar / Necesitas pertenecer a un grupo / Disponibilidad sin confirmar |
+| Tarea con entrega confirmada | Entregada según Moodle | Puedes editar tu entrega / No puedes editar tu entrega. Si la edición es incierta, se omite el complemento. |
+| Nota confirmada y ausencia de envío | Calificada por Moodle | No se registra una entrega |
+| Cuestionario con intento finalizado | Cuestionario finalizado según Moodle | La nota verificada sigue junto a la fecha límite, si está disponible. |
+| Cuestionario sin intentos confirmados o sin finalizar | No iniciado según Moodle / Cuestionario sin finalizar según Moodle | Puedes realizar el cuestionario si Moodle ofrece el primer intento. |
+| Cuestionario programado o todavía no disponible | Participación sin confirmar | El cuestionario todavía no está disponible. Si consta la apertura, se muestra día y hora. |
+| Encuesta con respuesta confirmada | Respondida según Moodle | Se conserva la última confirmación si una consulta posterior falla. |
+| Encuesta disponible, en curso, programada o restringida | Participación sin confirmar | Puedes responder la encuesta / Puedes continuar la encuesta / Apertura / Acceso restringido, según la evidencia. |
+| Cuestionario o encuesta con cierre confirmado | Participación sin confirmar | Cuestionario cerrado / Encuesta cerrada |
+| Foro sin declaración | Participación sin confirmar | Puedes declarar si participaste |
+| Declaración del estudiante | Declarada como realizada / Declarada como no realizada | Declaración del estudiante. La evidencia oficial prevalece y, si difiere, se señala la declaración conservada. |
+| Marca negativa anterior sin declaración explícita | Participación sin confirmar | La marca se conserva como «Marca anterior». |
+| Finalización histórica | Finalización registrada anteriormente | Se indica cuando se desconoce su origen. |
+| Estado no reconocido o consulta fallida | Sin verificar | Puedes volver a comprobarla si falló la consulta. Una entrega verificada que se conserva indica que está pendiente de reconfirmación. |
+
+Las fechas de comprobación usan «Verificado el DD/MM/AAAA a las HH:mm» en la hora local del navegador. Se toma el sello asociado a la evidencia guardada y, si falta, la fecha del registro oficial. En cuestionarios y encuestas finalizados se conserva la fecha del registro que confirmó la participación, porque una lectura posterior puede confirmar solo la disponibilidad y conservar el resultado anterior. Las declaraciones, los estados desconocidos y las marcas históricas de origen desconocido carecen de fecha de verificación automática. El resumen describe intentos de conexión, datos guardados reutilizados, dificultades y cancelaciones en lenguaje sencillo.
+
+Las pruebas de presentación usaron ambas vistas y los temas Claro, Oscuro y Automático a 320, 360 y 960 px. En el escenario de evidencia, la candidata anterior y la actual registraron 24 solicitudes en la carga inicial, incluidas 17 lecturas de actividad. La recarga con información vigente mantuvo una consulta de sesión y ninguna lectura de actividades. Cambiar de vista, ancho o tema generó cero solicitudes.
+
+La batería final pasó **43 pruebas Node y 894 comprobaciones en 26 suites de Chrome**, sin fallos ni omisiones. En la primera corrida conjunta se actualizó la aserción que todavía buscaba «Reconfirmación pendiente». La repetición comprobó «Pendiente de volver a comprobar» junto al estado y la fecha originales. También comprobó que una marca negativa antigua no se convierta en una declaración explícita y que una consulta de disponibilidad no actualice la fecha de una finalización anterior.
+
+El ZIP Manifest V3 extraído conservó el estado, la nota y la fecha tras reiniciar Chrome en un perfil temporal con datos sintéticos. Una reverificación individual hizo un GET de la tarea. El paquete contiene ocho archivos públicos y pesa **76.281 bytes**. SHA-256 `C1017AC1EB0BF506EFB4C4DBFB4EB80B8583E97C53BD20D3B6E3EBE4A0F4B763`.
+
 ## Estados de entrega y edición de tareas · 2.5.1
 
 La verificación reutiliza el GET de la vista principal. Para acompañar una entrega confirmada con un estado de edición, Revamp comprueba la cuenta, el módulo, el `cmid` y el resumen visible de entrega. Reconoce «Editar entrega» o «Edit submission» en un formulario GET o enlace con destino a la misma tarea, con los parámetros `id` y `action=editsubmission`. El control debe estar habilitado para informar disponibilidad. [Control de edición en Moodle 4.5](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/assign/classes/output/user_submission_actionmenu.php#L99-L106)

@@ -120,7 +120,8 @@ async (page, baseline=false) => {
   const stale=await report();
   check(stale.effective.completed.staleAutomatic===2,'Ambas entregas confirmadas se conservan aunque una tenga una marca anterior');
   await page.getByRole('tab',{name:/^Entregadas/}).click();
-  check(await page.locator('.ugr-item').filter({hasText:'Actividad 1'}).getByText(/Reconfirmación pendiente/).count()===1,'Aviso en la fila de la entrega');
+  const previousDelivery=await page.locator('[data-id="assign:1"] .ugr-source').textContent();
+  check(/^Entregada según Moodle · Pendiente de volver a comprobar · Verificado el /.test(previousDelivery),'Aviso en la fila de la entrega');
   const retryTimeout=await execute('retryTimeout');
   const timeout=retryTimeout.activeFailures.find(f=>f.code==='TIMEOUT');
   check(retryTimeout.lastRun.persistentErrors===1&&timeout?.details.timeoutMs===25000&&timeout.details.phase==='headers','El plazo ampliado de recuperación también vence');

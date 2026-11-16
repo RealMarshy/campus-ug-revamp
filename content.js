@@ -28,11 +28,26 @@
   const started=performance.now();
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const key=it=>it.mod+':'+it.cmid;
+  const connectionMessages={
+    ACCOUNT_CHANGED:'Cuenta distinta en Moodle. Vuelve a abrir el Área personal.',
+    SESSION_EXPIRED:'Sesión caducada. Inicia sesión en Moodle y recarga el Área personal.',
+    IDENTITY_MISSING:'No se pudo confirmar tu cuenta de Moodle. Recarga el Área personal.',
+    IDENTITY_CONFLICT:'No se pudo confirmar tu cuenta de Moodle. Recarga el Área personal.',
+    REDIRECT:'No se pudo comprobar tu sesión. Vuelve al Área personal y pulsa Actualizar.',
+    NETWORK:'No se pudo conectar con Moodle. Puedes volver a intentar.',
+    TIMEOUT:'Moodle tardó demasiado en responder. Puedes volver a intentar.',
+    HTTP:'Moodle no pudo responder a la solicitud. Puedes volver a intentar.'
+  };
+  const sessionWaiting='La sesión está en espera tras un problema con Moodle.';
+  function localDataMessage(error){
+    if(error.message?.includes('versión más reciente'))return 'Tus datos se guardaron con una versión más reciente. Actualiza la extensión.';
+    return 'No se pudo leer la información guardada. Recarga el Área personal.';
+  }
   function fail(message){state.error=message; schedule();}
   function assertSession(){
     if(stopped || C.identity(document).userId!==session.userId) throw C.problem('ACCOUNT_CHANGED');
   }
-  function stop(message='La sesión cambió o caducó. Recarga el campus.'){
+  function stop(message='La sesión cambió o caducó. Recarga el Área personal.'){
     stopped=true;waitingLock?.abort();controllers.forEach(c=>c.abort());clearInterval(timer);schedulePeriodic();
     state.items=[];state.store={auto:{},manual:{}};
     preferences=C.presentation({schema:1,position:preferences.position});
@@ -210,7 +225,7 @@
     changes.push({type:'failure',key:k,value:failure});
     incidents.push({stage,module,round,code:failure.code,details:failure.details});
     if(incidents.length>100)incidents.shift();
-    if(['ACCOUNT_CHANGED','SESSION_EXPIRED'].includes(failure.code))stop(C.ERROR_LABELS[failure.code]+'. Recarga el campus.');
+    if(['ACCOUNT_CHANGED','SESSION_EXPIRED'].includes(failure.code))stop(connectionMessages[failure.code]);
   }
   function resolveFailure(changes,id){
     if(!Object.hasOwn(failures,id))return;
@@ -272,7 +287,7 @@
       if(checkPriority)await checkPriority();
       if(!proceed()){finalMessage='Actualización periódica interrumpida.';return;}
       if(force && exhaustiveAt>=requestedAt){
-        shared=true;finalMessage='Actualización finalizada. Se reutilizó la reverificación de otra pestaña.';
+        shared=true;finalMessage='Actualización finalizada. Se usaron los resultados de otra pestaña.';
         return;
       }
       if(mode!=='one'){
@@ -280,8 +295,7 @@
         const failure=failures.session, now=Date.now();
         if(refresh&&refreshSessionAt>=requestedAt){
           shared=true;sessionProbe='shared';
-          finalMessage=failure?'Comprobación de sesión en espera por un fallo anterior.':
-            'Actualización finalizada. Se reutilizó la actualización de otra pestaña.';
+          finalMessage=failure?sessionWaiting:'Actualización finalizada. Se usaron los resultados de otra pestaña.';
           return;
         }
         const backoff=failure&&(now<failure.retryAt||(periodic&&serverWaiting(failure)));
@@ -290,8 +304,8 @@
         if(!force&&backoff&&!redirectRetry){
           sessionProbe='waiting';
           finalMessage=refresh&&failure.code==='REDIRECT'
-            ? 'La redirección sigue bloqueada. Vuelve a intentar cuando hayan pasado 30 segundos desde la última comprobación.'
-            : 'Comprobación de sesión en espera por un fallo anterior.';
+            ? 'La sesión está en espera. Deja pasar 30 segundos desde la última comprobación antes de pulsar Actualizar.'
+            : sessionWaiting;
           return;
         }
         sessionProbe='requested';
@@ -300,7 +314,7 @@
         const page=new DOMParser().parseFromString(await request(`${ORIGIN}/my/`),'text/html');
         C.checkIdentity(page,session.userId);resolveFailure(changes,'session');
         const known=new Set(state.items.map(key));
-        if(!periodic){state.progress='Sincronizando calendario…';schedule();}
+        if(!periodic){state.progress='Consultando el calendario de Moodle…';schedule();}
         const windowMonths=months();
         await pool(recentOnly?windowMonths.filter(m=>!m.historical):windowMonths,async m=>{
           const old=cache.months[m.key], fk='calendar:'+m.key;
@@ -418,8 +432,8 @@
           saveStamps=true;
         }
         if(!stopped&&!cancelled&&(!periodic||round==='recovery')){
-          state.progress=round==='initial'?`Revisando estados… ${checked}/${detected}`:
-            `Recuperando verificaciones… ${retriesAttempted}/${retryQueue.size} intentadas · ${recoveredAfterRetry} recuperadas.`;
+          state.progress=round==='initial'?`Comprobando actividades… ${checked}/${detected}`:
+            `Recuperando información de Moodle… ${retriesAttempted}/${retryQueue.size}`;
           schedule();
         }
       };
@@ -430,7 +444,7 @@
         const recoveryStart=performance.now();
         const deadline=recoveryStart+(periodic?CFG.periodicRecoveryBudget:CFG.recoveryBudget);
         const limit=periodic?CFG.periodicRecoveryLimit:CFG.recoveryLimit;
-        state.progress=`Recuperando verificaciones fallidas… ${retryQueue.size} actividades elegibles.`;
+        state.progress='Recuperando información de Moodle…';
         render();
         try{
           const work=[...retryQueue.values()].sort((a,b)=>a.readyAt-b.readyAt);
@@ -446,20 +460,23 @@
         }finally{recoveryDurationMs=Math.round(performance.now()-recoveryStart);}
       }
       assertSession();
-      if(cancelled)finalMessage=`Reverificación cancelada. ${checked} consultas iniciales iniciadas · ${recoveredAfterRetry} recuperadas.`;
+      if(cancelled)finalMessage='Reverificación cancelada.';
       else if(mode==='one'){
-        const result=shared?'Se reutilizó la comprobación en curso.':errors?'Error al comprobar la actividad.':!checked?'Actividad no disponible.':changed?'Estado o cierre actualizado.':'Actividad verificada. Sin cambios.';
-        finalMessage='Actualización finalizada. '+result;
+        const result=shared?'Se usó el resultado de la comprobación en curso.':errors?'No se pudo comprobar la actividad. Puedes volver a intentarlo.':!checked?'Actividad no disponible.':changed?'Se actualizó la información de la actividad.':'Actividad verificada. Sin cambios.';
+        finalMessage=(errors?'Actualización finalizada con problemas. ':'Actualización finalizada. ')+result;
       }else if(force){
-        finalMessage=`Actualización finalizada. ${checked} actividades revisadas · ${retriesAttempted} reintentos · ${recoveredAfterRetry} recuperadas · ${errors} fallos pendientes de esta revisión · ${calendarErrors} fallos de calendario.`;
+        finalMessage=joinStatus(errors||calendarErrors?'Actualización finalizada con problemas.':'Actualización finalizada.',
+          `${checked} actividades comprobadas`,recoveredAfterRetry?`${recoveredAfterRetry} comprobadas al volver a intentar`:'',
+          errors?`${errors} sin confirmar en esta revisión`:'',calendarErrors?'Problemas al consultar el calendario':'');
         exhaustiveAt=performance.timeOrigin+performance.now();
         saveStamps=true;
       }else{
-        const sharedNote=calendarShared?` (${calendarShared} de otra pestaña)`:'';
-        const waitingNote=calendarWaiting?` · ${calendarWaiting} meses en espera por fallos previos`:'';
-        const heading=periodic?(proceed()?'Actualización periódica finalizada.':'Actualización periódica interrumpida.'):'Actualización finalizada.';
-        const recoveryNote=initialErrors?` · ${initialErrors} fallos iniciales · ${retriesAttempted} reintentos · ${recoveredAfterRetry} recuperadas`:'';
-        finalMessage=`${heading} ${calendarRequested} meses consultados · ${calendarReused} meses desde caché${sharedNote} · ${newActivities} actividades nuevas · ${checked} comprobaciones${recoveryNote} · ${errors} fallos de actividad · ${calendarErrors} fallos de calendario${waitingNote} · ${skipped} actividades en espera · ${archived} archivadas.`;
+        const issues=errors||calendarErrors;
+        const heading=periodic?(proceed()?'Actualización periódica finalizada':'Actualización periódica interrumpida'):'Actualización finalizada';
+        finalMessage=`${heading}${issues?' con problemas':''}. `+joinStatus(
+          `${calendarRequested} meses consultados`,`${calendarReused} meses con datos guardados`,
+          `${newActivities} actividades nuevas`,`${checked} actividades comprobadas`,errors?`${errors} sin confirmar en esta revisión`:'',
+          calendarErrors?'Problemas al consultar el calendario':'',calendarWaiting||skipped?'Hay comprobaciones pendientes':'');
       }
     }catch(e){
       if(cancelled)finalMessage='Reverificación cancelada.';
@@ -467,20 +484,18 @@
         if(refresh&&sessionProbe==='requested'&&e.code==='REDIRECT')refreshRedirect=true;
         recordFailure(changes,'session',e,'session');
         if(periodic&&e.code==='IDENTITY_CONFLICT')stop();
-        fail(e.code==='REDIRECT'&&sessionProbe==='requested'
-          ? 'Moodle redirigió la comprobación de sesión. Vuelve al Área personal y pulsa Actualizar.'
-          : C.ERROR_LABELS[e.code]||C.ERROR_LABELS.INTERNAL);
+        fail(connectionMessages[e.code]||'No se pudo actualizar. Puedes volver a intentarlo.');
       }
     }
     finally{
       if(!periodic)runningMode=undefined;
       if(!stopped){
-        if(force){state.progress='Finalizando sincronización…';render();}
+        if(force){state.progress='Terminando la actualización…';render();}
         const finishedAt=performance.timeOrigin+performance.now();
         if(refreshRedirect&&!cancelled){refreshSessionAt=finishedAt;saveStamps=true;}
         if(!cancelled)for(const month of refreshedRecent)calendarRefreshes[month]=finishedAt;
         try{await append(changes,saveStamps);}catch{fail('No se guardaron los cambios de esta ejecución. Comprueba el espacio disponible.');}
-        state.progress=finalMessage||'Sincronización detenida. Consulta Diagnóstico.';
+        state.progress=finalMessage||'Sincronización detenida. Revisa el aviso o consulta Diagnóstico.';
       }else state.progress='Sincronización detenida.';
       metrics.syncMs=Math.round(performance.now()-start);
       lastRun={mode,trigger,manual,checked,activityErrors:errors,calendarErrors,skipped,calendarWaiting,
@@ -533,7 +548,7 @@
             }
             render();
             await synchronize(mode,target,requestedAt,trigger);
-          }catch(e){if(e.code==='ACCOUNT_CHANGED')stop();else fail(e.message);}
+          }catch(e){if(e.code==='ACCOUNT_CHANGED')stop();else fail(localDataMessage(e));}
         });
         if(manual)await navigator.locks.request(manualLockName,{mode:'shared',signal:options.signal},acquire);
         else await acquire();
@@ -541,7 +556,7 @@
         if(cancelled){
           state.progress='Reverificación cancelada antes de iniciar las consultas.';
           lastRun={mode,cancelled:true,checked:0,retriesAttempted:0};
-        }else if(!stopped)fail(e.message);
+        }else if(!stopped)fail('No se pudo iniciar la actualización. Puedes volver a intentarlo.');
       }finally{waitingLock=undefined;}
     })().finally(()=>{running=null;runningTarget=undefined;runningMode=undefined;state.loading=false;schedulePeriodic();render();});return running;
   }
@@ -702,6 +717,10 @@
     ts==null?'':new Date(ts * 1000).toLocaleString('es-EC', {
       weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone,
     });
+  const verificationDay=new Intl.DateTimeFormat('es-EC',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const verificationTime=new Intl.DateTimeFormat('es-EC',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+  const verificationDate=time=>time>0?`Verificado el ${verificationDay.format(time)} a las ${verificationTime.format(time)}`:'';
+  const joinStatus=(...parts)=>parts.filter(Boolean).join(' · ');
 
   function itemHtml(it) {
     const classification=bucket(it);
@@ -712,8 +731,8 @@
     const grade=evaluation||(/^(assign|quiz)$/.test(it.mod)&&auto?.source==='moodle'&&auto.done&&
       stamp?.stateAt===auto.t?stamp.grade:null);
     const historicalGrade=grade&&(failures[id]||Date.now()-(evaluation?auto.t:stamp.t)>=CFG.completed);
-    const gradeHtml=grade?`<span class="ugr-grade">${historicalGrade?`Última calificación confirmada (${esc(new Date(evaluation?auto.t:stamp.t).toLocaleString('es-EC'))})`:'Calificación'}: ${esc(grade)}</span>`:'';
-    const statusText=done?(evaluation?'Calificada sin envío en Moodle':'Entregada'):rel(it.due);
+    const gradeHtml=grade?`<span class="ugr-grade">${historicalGrade?'Última calificación confirmada':'Calificación'}: ${esc(grade)}</span>`:'';
+    const declarationLabel=it.mod==='assign'?'Declarar que entregué la tarea':'Declarar que realicé el cuestionario';
     const soon=classification==='proximas' && it.due * 1000 - Date.now() < 24 * 3600 * 1000;
     const cls = unknown ? 'ugr-unknown' : done ? 'ugr-done' : classification==='atrasadas' ? 'ugr-late' : soon ? 'ugr-soon' : '';
     return `
@@ -725,13 +744,13 @@
         </div>
         <div class="ugr-when">
           <div>${esc(fmtDate(it.due))}</div>
-          <div class="ugr-rel">${unknown?'Sin verificar · ':''}${esc(statusText)}${gradeHtml?' · '+gradeHtml:''}</div>
+          <div class="ugr-rel">${joinStatus(done?'':esc(rel(it.due)),gradeHtml)}</div>
         </div>
         <div class="ugr-actions">
         ${it.mod==='forum'?'':`<button type="button" class="ugr-toggle" data-reverify="${esc(key(it))}" title="Reverificar esta actividad" aria-label="Reverificar esta actividad">⟳</button>`}
         ${showManualChoice(it)?manualChoice(it):
           ['assign','quiz'].includes(it.mod)&&!confirmed(it)?`<button type="button" class="ugr-toggle" data-toggle="${esc(id)}"
-          title="Marcar como entregada" aria-label="Marcar como entregada">✓</button>`:''}
+          title="${declarationLabel}" aria-label="${declarationLabel}">✓</button>`:''}
         </div>
       </li>`;
   }
@@ -746,55 +765,58 @@
       </select></label>`;
   }
 
+  const confirmedLabels={assign:'Entregada según Moodle',quiz:'Cuestionario finalizado según Moodle',feedback:'Respondida según Moodle'};
+  const assignmentOptions={
+    add_submission:'Puedes agregar una entrega',no_submission_option:'No aparece la opción para entregar',
+    group_blocked:'Necesitas pertenecer a un grupo',edit_submission:'Puedes editar tu entrega',
+    no_edit_submission:'No puedes editar tu entrega'
+  };
+  const feedbackOptions={available:'Puedes responder la encuesta',in_progress:'Puedes continuar la encuesta',restricted:'Acceso restringido'};
+  const unconfirmedParticipation='Participación sin confirmar';
+  const retryActivity='No se pudo comprobar. Puedes volver a intentarlo';
+
   function sourceLabel(it){
-    const status=completion(it);
-    const manual=state.store.manual[key(it)];
-    if(confirmed(it)&&manual!==undefined&&(manual===false||manual==='no')&&status.done)
-      return status.source==='moodle'?'Entrega confirmada por Moodle · Contradice la declaración manual':'Finalización histórica · Contradice la declaración manual';
-    if(confirmed(it)&&manual!==undefined&&status.source==='manual'&&!status.done)
-      return 'Marca manual anterior · Contradice la finalización histórica';
-    if(evaluationGrade(it)&&manual!==undefined)return 'Calificada sin envío en Moodle · Se conserva la declaración manual';
-    if(status.source==='manual'&&typeof manual==='string')return manual==='yes'?'Declarada realizada · Confirmación manual':'Declarada no realizada · Confirmación manual';
-    if(it.mod==='forum'&&!status.done)return 'Requiere confirmación manual';
-    if(status.source==='manual')return failures[key(it)]&&it.mod!=='forum'
-      ? 'Estado manual · última consulta fallida'
-      : 'Estado manual';
-    if(status.source==='historical')return 'Completada · confirmación automática histórica';
-    if(status.source==='historical_unknown')return 'Completada · origen histórico desconocido';
-    const s=state.store.auto[key(it)];
-    const f=failures[key(it)];
+    const id=key(it), status=completion(it), manual=state.store.manual[id], auto=state.store.auto[id], stamp=stamps[id];
+    const failure=failures[id];
+    const discordance=manual==='no'?'Tu declaración indica lo contrario':manual===false?'Hay una marca anterior diferente':'';
+    const official=auto?.source==='moodle';
+    // Quiz and feedback can retain earlier completion after a read that only confirms availability.
+    const checkedAt=official?(auto.done&&it.mod!=='assign'?auto.t:stamp?.stateAt===auto.t?stamp.t:auto.t):0;
+    const verified=verificationDate(checkedAt);
+    if(evaluationGrade(it))return joinStatus('Calificada por Moodle','No se registra una entrega',
+      failure?'Pendiente de volver a comprobar':'',verified);
+    if(status.source==='moodle'&&status.done){
+      const canEdit=it.mod==='assign'&&!failure?assignmentOptions[auto.assignAvailability]:'';
+      return joinStatus(confirmedLabels[it.mod],canEdit,failure?'Pendiente de volver a comprobar':'',
+        discordance,verified);
+    }
+    if(status.done&&status.source!=='manual')
+      return joinStatus('Finalización registrada anteriormente',status.source==='historical'?'':'Origen sin confirmar',discordance);
+    if(status.source==='manual'&&manual===false)
+      return joinStatus(unconfirmedParticipation,confirmed(it)?'Hay una finalización anterior registrada':
+        it.mod==='forum'?'Puedes declarar si participaste':'Hay una marca anterior');
+    if(status.source==='manual'){
+      return joinStatus(status.done?'Declarada como realizada':'Declarada como no realizada','Declaración del estudiante',
+        confirmed(it)&&manual==='no'?'Hay una finalización anterior registrada':failure?retryActivity:'');
+    }
+    if(it.mod==='forum')return joinStatus(unconfirmedParticipation,'Puedes declarar si participaste');
+    if(failure)return joinStatus('Sin verificar',retryActivity);
     if(it.mod==='feedback'){
-      if(status.done)return 'Entregada · Confirmada por Moodle';
-      if(f||it.conflict)return 'Sin verificar · Estado de la encuesta sin confirmar';
-      if(feedbackClosed(it))return 'Encuesta cerrada · Participación sin confirmar';
-      if(s?.feedbackState==='not_yet_open'&&Date.now()<it.openAt)return 'Todavía no disponible · Abre '+fmtDate(it.openAt/1000);
-      if(it.openAt!=null&&Date.now()<it.openAt)return 'Sin verificar · Abre '+fmtDate(it.openAt/1000);
-      return {available:'Disponible para responder',in_progress:'Disponible para continuar',
-        restricted:'Acceso restringido'}[s?.feedbackState]??'Sin verificar · Participación sin confirmar';
+      if(it.conflict)return 'Sin verificar';
+      if(feedbackClosed(it))return joinStatus(unconfirmedParticipation,'Encuesta cerrada',official&&auto.feedbackState==='closed'?verified:'');
+      if(it.openAt!=null&&Date.now()<it.openAt)
+        return joinStatus(unconfirmedParticipation,'Abre el '+fmtDate(it.openAt/1000),auto?.feedbackState==='not_yet_open'?verified:'');
+      return feedbackOptions[auto?.feedbackState]?joinStatus(unconfirmedParticipation,feedbackOptions[auto.feedbackState],verified):unconfirmedParticipation;
     }
-    if(evaluationGrade(it))return f?'Calificada sin envío en Moodle · última consulta fallida':'Calificada sin envío en Moodle';
-    if(staleDelivered(it)){
-      const t=stamps[key(it)]?.t??s.t;
-      return `Último estado confirmado: entregada · ${t>0?new Date(t).toLocaleString('es-EC')+' · ':''}Reconfirmación pendiente (${C.ERROR_LABELS[f.code]}).`;
-    }
-    if(it.mod==='quiz'&&(f||!s||s.source==='unknown'))return 'Sin verificar · Moodle no proporcionó un estado reconocible';
-    if(s?.absence==='quiz_no_attempts')return s.available?'No iniciado · Disponible para realizar':
-      'No iniciado · No se han registrado intentos del cuestionario';
-    if(s?.absence==='quiz_closed_unknown')return 'Cuestionario cerrado · Participación sin confirmar';
-    if(s?.quizOpenAt>Date.now())return 'Todavía no disponible · Abre el '+fmtDate(s.quizOpenAt/1000,"America/Guayaquil");
-    if(s?.quizOpenAt)return 'Sin verificar · Disponibilidad pendiente de actualización';
-    if(['quiz_unavailable','quiz_not_yet_open','quiz_scheduled'].includes(s?.absence))return 'Todavía no disponible · El cuestionario aún no permite iniciar un intento';
-    if(f)return `Desconocido por error: ${C.ERROR_LABELS[f.code]}. ${s ? 'Último estado: '+(s.done?'entregada':'no entregada')+'. ' : ''}Reintento automático desde ${new Date(f.retryAt).toLocaleTimeString('es-EC')}. Puedes reverificar esta actividad.`;
-    if(!s || s.source==='unknown') return 'Sin verificar · origen del estado anterior desconocido';
-    const label=s.done?(it.mod==='assign'?({
-      edit_submission:'Entregada según Moodle · Disponible para editar entrega',
-      no_edit_submission:'Entregada según Moodle · Sin opción para editar entrega'
-    }[s.assignAvailability]??'Entregada según Moodle'):'Entrega confirmada por Moodle'):
-      s.assignAvailability==='group_blocked'?'Sin entrega · Bloqueada por grupo':
-      s.assignAvailability==='add_submission'?'No entregada según Moodle · Disponible para agregar entrega':
-      s.assignAvailability==='no_submission_option'?'No entregada según Moodle · Sin opción para entregar':'No entregada según Moodle';
-    const time=stamps[key(it)]?.t??s.t;
-    return time>0?`${label} · ${new Date(time).toLocaleString('es-EC')}`:label;
+    if(!official)return 'Sin verificar';
+    if(it.mod==='assign')return joinStatus('No entregada según Moodle',assignmentOptions[auto.assignAvailability]??'Disponibilidad sin confirmar',verified);
+    if(auto.absence==='quiz_no_attempts')
+      return joinStatus('No iniciado según Moodle',auto.available?'Puedes realizar el cuestionario':'',verified);
+    if(auto.absence==='quiz_closed_unknown')return joinStatus(unconfirmedParticipation,'Cuestionario cerrado',verified);
+    if(auto.quizOpenAt>Date.now())return joinStatus(unconfirmedParticipation,'Abre el '+fmtDate(auto.quizOpenAt/1000,'America/Guayaquil'),verified);
+    if(auto.quizOpenAt)return joinStatus(unconfirmedParticipation,'Disponibilidad sin confirmar');
+    if(auto.absence)return joinStatus(unconfirmedParticipation,'El cuestionario todavía no está disponible',verified);
+    return joinStatus('Cuestionario sin finalizar según Moodle',verified);
   }
   const panel=document.createElement('section');panel.id='ugr-panel';panel.className='ugr-panel';panel.hidden=true;
   panel.setAttribute('aria-labelledby','ugr-title');
@@ -890,7 +912,7 @@
       <ul class="ugr-list" tabindex="0" aria-label="Actividades filtradas"></ul>
       <div class="ugr-empty"><span data-empty-message></span><button type="button" data-reset-categories hidden>Restablecer filtros</button><button type="button" data-reset-types hidden>Restaurar todos los tipos</button><button type="button" data-clear-date hidden>Limpiar filtro</button></div>
     </div>
-    <div class="ugr-foot">Usa Participación o Realización para declarar una actividad. Sin declarar recupera el estado conocido de Moodle.</div>
+    <div class="ugr-foot">Participación y Realización registran lo que declaras. Moodle confirma las entregas por separado. Elige Sin declarar para volver al estado conocido.</div>
     <dialog id="ugr-credits" class="ugr-credits-dialog" aria-labelledby="ugr-credits-title">
       <button class="ugr-credits-close" type="button" aria-label="Cerrar créditos" autofocus>×</button>
       <h4 id="ugr-credits-title">Créditos:</h4>
@@ -1131,9 +1153,9 @@
     statusButton.textContent=show?'Ocultar estado':'Mostrar estado';
     statusButton.setAttribute('aria-expanded',String(show));
     const count=records.filter(record=>record.recoveryFailed).length;
-    const persistentNotice=count===1?'1 actividad con un fallo persistente.':count>1?`${count} actividades con fallos persistentes.`:'';
+    const persistentNotice=count===1?'1 actividad sigue sin comprobarse.':count>1?`${count} actividades siguen sin comprobarse.`:'';
     const identityNotice=records.some(record=>['IDENTITY_MISSING','IDENTITY_CONFLICT'].includes(record.code))
-      ? 'No se pudo confirmar la identidad en una consulta. Recarga Moodle si el problema continúa.':'';
+      ? 'No se pudo confirmar tu cuenta en una consulta. Recarga Moodle si el problema continúa.':'';
     const notice=[state.error||identityNotice,persistentNotice].filter(Boolean).join(' ');
     const statusError=ui('.ugr-error');
     if(statusError.textContent!==notice)statusError.textContent=notice;
@@ -1268,7 +1290,7 @@
         effective.completed[category]++;
       }
     }
-    panel.querySelector('[data-state-summary]').textContent=`Filtro actual · ${effective.unknown} sin verificar · ${effective.completed.staleAutomatic} entregas por reconfirmar · ${effective.persistentActivityFailures} con fallos persistentes · ${effective.manualPending} foros por confirmar.`;
+    panel.querySelector('[data-state-summary]').textContent=`Filtro actual · ${effective.unknown} sin verificar · ${effective.completed.staleAutomatic} por volver a comprobar · ${effective.persistentActivityFailures} con problemas al comprobar · ${effective.manualPending} foros por confirmar.`;
     const counts={};for(const f of records)counts[f.code]=(counts[f.code]||0)+1;
     const activeSummary=records.length ? Object.entries(counts).map(([code,n])=>`${C.ERROR_LABELS[code]}: ${n}`).join(' · ') : 'Sin fallos activos.';
     displayStatus(records);
@@ -1504,7 +1526,7 @@
     try{
       await readCache();render();await load('normal',undefined,undefined,'startup');
       if(!stopped){periodicAnchor=Date.now();schedulePeriodic();render();}
-    }catch(e){fail(e.message||'No se pudo leer el almacenamiento local.');}
+    }catch(e){fail(localDataMessage(e));}
     timer=setInterval(()=>{if(!stopped){try{assertSession();schedule();}catch{stop();}}},60000);
   })();
 })();

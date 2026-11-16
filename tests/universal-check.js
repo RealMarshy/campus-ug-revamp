@@ -87,15 +87,15 @@ async (page, baseline=false)=>{
   check(three.run.timeoutPhase.headers===3&&three.run.recoveredAfterRetry===3&&three.activity===45,'Tres timeouts simultáneos se recuperan de forma selectiva');
   const partial=await reset({1:[502],2:[503,504],3:[504]},5);
   check(partial.run.retriesAttempted===3&&partial.run.recoveredAfterRetry===2&&partial.run.persistentErrors===1,'502, 503 y 504 permiten recuperación parcial');
-  check((await warning.textContent())==='1 actividad con un fallo persistente.'&&partial.d.activeFailures[0].recoveryFailed,'Contador singular aunque cambie el código de error');
+  check((await warning.textContent())==='1 actividad sigue sin comprobarse.'&&partial.d.activeFailures[0].recoveryFailed,'Contador singular aunque cambie el código de error');
   const failed=await reset({1:['network','network'],2:[503,503],3:['unknown']},4);
   check(failed.run.retriesAttempted===2&&failed.run.persistentErrors===2&&failed.d.activeFailures.length===3&&
-    (await warning.textContent())==='2 actividades con fallos persistentes.','El contador solo incluye recuperaciones fallidas');
+    (await warning.textContent())==='2 actividades siguen sin comprobarse.','El contador solo incluye recuperaciones fallidas');
   const beforeBackoff=requests;
   await page.locator('[data-refresh]').click();await final();
   check((await diag()).lastRun.skipped===3&&requests-beforeBackoff===4&&calls.get(1)===2,'Actualizar respeta backoff y reutiliza entregas');
   await page.reload();await final();
-  check((await warning.textContent())==='2 actividades con fallos persistentes.','La advertencia persiste tras recargar con backoff');
+  check((await warning.textContent())==='2 actividades siguen sin comprobarse.','La advertencia persiste tras recargar con backoff');
   faults={};
   await page.evaluate(()=>{window.confirm=()=>true;});
   await page.getByRole('button',{name:'Reverificar todo',exact:true}).click();await final();
@@ -107,7 +107,7 @@ async (page, baseline=false)=>{
   check(rate.run.retriesAttempted===1&&rate.run.recoveryDurationMs>=900&&rate.run.persistentErrors===0&&await warning.isHidden(),'429 solo con Retry-After válido y corto, sin advertencia por espera');
   const conflict=await reset({1:[503],2:['conflict']},2);
   check(conflict.run.retriesAttempted===0&&conflict.d.activeFailures.some(x=>x.code==='IDENTITY_CONFLICT'),'Conflicto de identidad impide despachar la cola');
-  check((await warning.textContent()).includes('identidad')&&!(await warning.textContent()).includes('persistente'),'Identidad recibe un aviso específico sin sumar fallos persistentes');
+  check((await warning.textContent()).includes('cuenta')&&!(await warning.textContent()).includes('siguen sin comprobarse'),'Identidad recibe un aviso específico sin sumar fallos persistentes');
   await reset({session:true},2);
   check(requests===1&&calls.size===0,'Sesión caducada impide consultas de actividades');
   check((await warning.textContent()).includes('Sesión caducada'),'Sesión recibe un aviso específico sin reintento');
