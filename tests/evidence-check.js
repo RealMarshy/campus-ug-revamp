@@ -1,4 +1,8 @@
 async (page,baseline=false)=>{
+  const openDeveloper=async()=>{
+    const section=page.locator('[data-developer]');
+    if(await section.count() && await section.getAttribute('open')===null)await section.locator(':scope > summary').click();
+  };
   const origin='http://127.0.0.1:8765', context=page.context();
   const titles=[
     ['Tarea --> Investigación','Tarea --> Investigación'],
@@ -118,7 +122,8 @@ async (page,baseline=false)=>{
   check(await position.inputValue()==='hidden'&&!(await row(1).locator('.ugr-source').textContent()).includes('Verificado el')&&
     await grade(1).isVisible(),'Una instalación nueva oculta fechas y conserva la calificación');
   await personalize.click();
-  await position.selectOption('top');
+  await openDeveloper();
+    await position.selectOption('top');
   await personalize.click();
   await tab('Sin verificar');
   for(const [id,label] of [[8,'No iniciado'],[9,'Participación sin confirmar · El cuestionario todavía no está disponible'],[10,'Participación sin confirmar · El cuestionario todavía no está disponible'],[11,'Participación sin confirmar · El cuestionario todavía no está disponible'],
@@ -416,7 +421,8 @@ async (page,baseline=false)=>{
     const beforePosition=calls.length;
     const dateInRow=lastLabel.split(' · ').at(-1);
     for(const value of ['hidden','bottom','top']){
-      await position.selectOption(value);
+      await openDeveloper();
+    await position.selectOption(value);
       check(await label()===(value==='hidden'?lastLabel.slice(0,-dateInRow.length-3):lastLabel)&&
         await grade(3).textContent()==='Calificación: 8 / 10'&&
         (await row(3).locator('.ugr-when > div').first().textContent())===due,
@@ -424,7 +430,8 @@ async (page,baseline=false)=>{
     }
     check(calls.length===beforePosition,'Cambiar ubicación no hace consultas · '+mode);
   }
-  await position.selectOption('hidden');
+  await openDeveloper();
+    await position.selectOption('hidden');
   await page.locator('[data-open-diagnostic]').click();
   await page.locator('[data-diagnostic-dates] > summary').click();
   await page.waitForFunction(name=>document.querySelector('[data-dates-list]').textContent.includes(name),titles[2][1]);

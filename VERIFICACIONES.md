@@ -1,5 +1,13 @@
 # Verificaciones de Campus UG Revamp
 
+## Reorganización de Personalizar · 2.5.1
+
+Las tres primeras filas agrupan Título y Vista de categorías, Tamaño del panel y Actividades visibles, y Apariencia y Tamaño de letra. A continuación aparecen Modo desarrollador y Restaurar configuración predeterminada. El apartado técnico usa un desplegable nativo, empieza contraído y conserva la ubicación, la visibilidad y el intervalo al cerrarse. El ajuste de letra añade una preferencia opcional al esquema existente. Las preferencias anteriores conservan el tamaño Normal.
+
+Pasaron **44 pruebas Node y 941 comprobaciones en 26 suites de Chrome**, sin fallos ni omisiones. Se probó el orden, el foco y el teclado, junto con la disposición a 320, 360 y 960 px. La restauración vuelve a contraer el apartado. Las pruebas existentes conservan las dos vistas, los temas y el acceso a Diagnóstico desde un aviso activo. Los cambios de interfaz hicieron cero solicitudes HTTP.
+
+Con el ZIP Manifest V3 extraído en un perfil temporal, Chrome conservó al reiniciar Tamaño de letra Grande, ubicación Abajo e intervalo de 15 minutos. El apartado inició contraído. Restaurar devolvió la letra a Normal sin generar solicitudes. El paquete contiene ocho archivos públicos y pesa **78.451 bytes**. SHA-256 `BD8406199FE4FF18C379450516D0D12045487A60B1690E8D97A9A2FD1ECD52A6`.
+
 ## Avisos de fallos definitivos · 2.5.1
 
 | Estado del fallo | Aviso «Consultar error» |

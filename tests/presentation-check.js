@@ -1,4 +1,8 @@
 async page=>{
+  const openDeveloper=async()=>{
+    const section=page.locator('[data-developer]');
+    if(await section.count() && await section.getAttribute('open')===null)await section.locator(':scope > summary').click();
+  };
   const origin='http://127.0.0.1:8765';
   const panel=page.locator('#ugr-panel'), setting=name=>panel.locator('[data-'+name+']');
   const list=panel.locator('.ugr-list'), rows=list.locator('li');
@@ -243,7 +247,28 @@ async page=>{
   const original=await store(), before=await metric(), initialRequests=academicRequests;
   await open();
   check(await setting('personalize').getAttribute('aria-expanded')==='true','Control de personalización accesible');
-  await setting('toggle-status').press('Enter');
+  const developer=prefs.locator('[data-developer] > summary');
+  const settingsOrder='title,mode,size,limit,appearance,font-size,position,toggle-status,open-diagnostic,auto-refresh-minutes,reset-presentation';
+  check(await prefs.evaluate(el=>[...el.querySelectorAll('input,select,button')].map(control=>
+    [...control.attributes].find(attr=>attr.name.startsWith('data-'))?.name.slice(5))
+    .filter(name=>name!=='reset-title').join(','))===settingsOrder,'Orden exacto de Personalizar');
+  check(await setting('position').isHidden()&&await setting('reset-presentation').isVisible(),'Opciones avanzadas contraídas por defecto');
+  const beforeDeveloper=await store(), requestsBeforeDeveloper=await metric();
+  await developer.press('Enter');
+  check(await setting('position').isVisible()&&await developer.evaluate(el=>el.matches(':focus-visible')),'Despliegue con teclado y foco visible');
+  await developer.press('Space');
+  check(await setting('position').isHidden()&&JSON.stringify(await store())===JSON.stringify(beforeDeveloper)&&
+    await metric()===requestsBeforeDeveloper,'Contraer conserva preferencias y solicitudes');
+  for(const width of [320,360,960]){
+    await page.setViewportSize({width,height:900});
+    check(await prefs.locator('.ugr-preference-fields').evaluate((grid,width)=>{
+      const cells=[...grid.children].map(el=>el.getBoundingClientRect());
+      return grid.scrollWidth<=grid.clientWidth&&(width===960?cells[0].top===cells[1].top:cells[0].bottom<=cells[1].top);
+    },width),'Distribución de Personalizar a '+width+' px');
+  }
+  await page.setViewportSize({width:1280,height:1000});
+  await openDeveloper();
+    await setting('toggle-status').press('Enter');
   check(await status.isVisible()&&await setting('position').inputValue()==='top','Mostrar por primera vez sitúa el estado arriba');
   await setting('position').selectOption('bottom');
   check(await status.evaluate(el=>el.previousElementSibling.matches('[data-list-body]')),'Estado abajo');
@@ -254,12 +279,15 @@ async page=>{
   await setting('open-diagnostic').click();
   check(await status.isHidden() && await setting('position').inputValue()==='hidden' &&
     await panel.locator('.ugr-diagnostic[open]').isVisible(),'Acceso directo al diagnóstico conserva Oculto');
-  await setting('toggle-status').press('Enter');
+  await openDeveloper();
+    await setting('toggle-status').press('Enter');
   check(await status.isVisible()&&await setting('position').inputValue()==='bottom','Mostrar desde Diagnóstico restaura Abajo');
-  await setting('toggle-status').press('Enter');
+  await openDeveloper();
+    await setting('toggle-status').press('Enter');
   check(await status.isHidden() && await setting('position').inputValue()==='hidden' &&
     await setting('toggle-status').getAttribute('aria-expanded')==='false','El botón y el selector comparten la preferencia');
-  await setting('toggle-status').press('Enter');
+  await openDeveloper();
+    await setting('toggle-status').press('Enter');
   check(await status.isVisible()&&await setting('position').inputValue()==='bottom','Mostrar restaura Abajo');
   await setting('mode').selectOption('custom');
   check(await panel.locator('.ugr-tabs').isHidden() && await rows.count()===242,'Solo Próximas');
@@ -316,7 +344,8 @@ async page=>{
   await setting('limit').selectOption('');
   check(await rows.count()===246 && await list.evaluate(el=>el.scrollHeight>el.clientHeight),'Sin límite conserva el scroll');
   await list.evaluate(el=>{el.scrollTop=3000;});
-  await setting('toggle-status').click();
+  await openDeveloper();
+    await setting('toggle-status').click();
   check(await list.evaluate(el=>el.scrollTop)===3000,'Scroll conservado durante render');
   await setting('limit').selectOption('5');
   check(await list.evaluate(el=>el.scrollTop===0),'Scroll ajustado a una lista más corta');
@@ -374,9 +403,11 @@ async page=>{
   check(await prefs.evaluate(el=>el.scrollWidth<=el.clientWidth&&[...el.querySelectorAll('fieldset')].every(g=>g.scrollWidth<=g.clientWidth)),
     'Recuadros de Personalizar con zoom simulado al 200 %');
   await page.evaluate(()=>{document.documentElement.style.zoom='';});
-  await setting('toggle-status').press('Enter');
+  await openDeveloper();
+    await setting('toggle-status').press('Enter');
   check(await status.isVisible()&&await setting('position').inputValue()==='bottom','Mostrar recuerda Abajo después de recargar');
-  await setting('toggle-status').press('Enter');
+  await openDeveloper();
+    await setting('toggle-status').press('Enter');
   await page.screenshot({path:'output/playwright/presentation-2.0.6-desktop.png'});
   await page.setViewportSize({width:360,height:780});
   check(await panel.evaluate(el=>el.scrollWidth===el.clientWidth && document.documentElement.scrollWidth===innerWidth) &&
@@ -425,6 +456,8 @@ async page=>{
   await dateBox.getByRole('button',{name:'Dentro de 1 semana'}).click();
   const priorRestore=await store();
   await setting('reset-presentation').click();
+  check(await setting('position').isHidden()&&await setting('reset-presentation').isVisible()&&
+    await setting('font-size').inputValue()==='normal','Restaurar contrae las opciones y recupera la letra normal');
   await page.waitForFunction(()=>JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':99:presentation']?.size==='normal',null,{timeout:5000})
     .catch(()=>{throw Error('La configuración predeterminada no se guardó');});
   const restored=await store();

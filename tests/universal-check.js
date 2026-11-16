@@ -1,4 +1,8 @@
 async (page, baseline=false)=>{
+  const openDeveloper=async()=>{
+    const section=page.locator('[data-developer]');
+    if(await section.count() && await section.getAttribute('open')===null)await section.locator(':scope > summary').click();
+  };
   const origin='http://127.0.0.1:8765', context=page.context();
   const identity='<script>M.cfg={"userId":42};</script>';
   const valid=identity+'<div class="submissionstatussubmitted">Enviado</div>';
@@ -136,6 +140,7 @@ async (page, baseline=false)=>{
   await page.locator('[data-personalize]').click();
   const beforeDisplay=requests;
   for(const position of ['hidden','top','bottom']){
+    await openDeveloper();
     await page.locator('[data-position]').selectOption(position);
     check(await errorButton.isHidden(),'Fallo aplazado sin botón · '+position);
   }
@@ -148,8 +153,10 @@ async (page, baseline=false)=>{
   await page.locator('[data-copy-diagnostic]').click();
   check(await page.evaluate(()=>JSON.parse(window.fixtureCopy).activeFailures.some(f=>f.code==='TIMEOUT')&&
     !window.fixtureCopy.includes('Contenido privado sintético')),'Copiar solo el JSON sanitizado');
-  await page.locator('[data-auto-refresh-minutes]').selectOption('0');
+  await openDeveloper();
+    await page.locator('[data-auto-refresh-minutes]').selectOption('0');
   for(const position of ['hidden','top','bottom']){
+    await openDeveloper();
     await page.locator('[data-position]').selectOption(position);
     check(await errorButton.isVisible()&&(await diag()).activeFailures[0].recovery==='action_required',
       'Sin una comprobación automática prevista pide atención · '+position);
@@ -175,7 +182,8 @@ async (page, baseline=false)=>{
 
   await page.clock.install();
   await page.locator('[data-personalize]').click();
-  await page.locator('[data-auto-refresh-minutes]').selectOption('0');
+  await openDeveloper();
+    await page.locator('[data-auto-refresh-minutes]').selectOption('0');
   await page.waitForFunction(()=>JSON.parse(document.querySelector('#ugr-diagnostics').textContent).autoRefreshIntervalMinutes===0);
   activityCount=4;faults[4]=['timeout'];
   await page.clock.fastForward(16*60000);

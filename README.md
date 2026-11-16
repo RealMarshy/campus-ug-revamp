@@ -14,9 +14,9 @@ Una encuesta o un cuestionario con cierre confirmado y participación desconocid
 
 Usa **Participación** en foros y encuestas elegibles, o **Realización** en cuestionarios cerrados sin historial. En tareas y otros cuestionarios, **✓** sigue disponible para declarar que completaste la actividad cuando Moodle no ha confirmado su realización. El selector permite cambiar o retirar la declaración después. **Sin declarar** recupera el último estado conocido sin consultar Moodle. Una finalización o evaluación verificada conserva prioridad.
 
-Cada fila distingue lo que Moodle confirmó, lo que declaraste y la disponibilidad conocida. Por ejemplo, una tarea sin envío puede decir **No entregada según Moodle · Necesitas pertenecer a un grupo**. Si la vista principal de una tarea entregada está completa y no ofrece edición, indica **No aparece la opción para editar**. La fecha **Verificado el** aparece junto al estado de la actividad cuando el resumen está Arriba o Abajo. Con el resumen Oculto, puedes consultar las fechas guardadas en **Personalizar → Ver diagnóstico → Fechas de comprobación**.
+Cada fila distingue lo que Moodle confirmó, lo que declaraste y la disponibilidad conocida. Por ejemplo, una tarea sin envío puede decir **No entregada según Moodle · Necesitas pertenecer a un grupo**. Si la vista principal de una tarea entregada está completa y no ofrece edición, indica **No aparece la opción para editar**. La fecha **Verificado el** aparece junto al estado de la actividad cuando el resumen está Arriba o Abajo. Con el resumen Oculto, puedes consultar las fechas guardadas en **Personalizar → Modo desarrollador → Ver diagnóstico → Fechas de comprobación**.
 
-El resumen y el diagnóstico aparecen ocultos si la cuenta todavía no tiene una ubicación guardada. En **Personalizar → Ubicación del estado**, selecciona Arriba, Abajo u Oculto. **Mostrar estado** recupera la última ubicación visible. La selección se guarda por cuenta y **Cancelar verificación** sigue disponible durante una reverificación.
+El resumen y el diagnóstico aparecen ocultos si la cuenta todavía no tiene una ubicación guardada. En **Personalizar → Modo desarrollador → Ubicación del estado**, selecciona Arriba, Abajo u Oculto. **Mostrar estado** recupera la última ubicación visible. La selección se guarda por cuenta y **Cancelar verificación** sigue disponible durante una reverificación.
 
 ## Qué ofrece
 
@@ -50,9 +50,9 @@ Para actualizar una instalación existente, coloca los archivos nuevos en la mis
 
 Si el panel indica que no pudo comprobar tu sesión, vuelve al Área personal y pulsa **Actualizar**. Si el aviso indica que la sesión está en espera, deja pasar 30 segundos desde la última comprobación manual antes de intentarlo de nuevo.
 
-En **Personalizar** puedes configurar la actualización automática cada 10, 15 o 30 minutos, o desactivarla. Allí también se ajustan la apariencia, el tamaño y la presentación de las categorías. **Diagnóstico de verificaciones** muestra la versión, el alcance de la última ejecución y los motivos de los fallos.
+En **Personalizar → Modo desarrollador** puedes configurar la actualización automática cada 10, 15 o 30 minutos, o desactivarla. Personalizar muestra directamente la apariencia, el tamaño del panel, el tamaño de letra y la vista de categorías. **Diagnóstico de verificaciones** muestra la versión, el alcance de la última ejecución y los motivos de los fallos.
 
-**Consultar error** aparece si un fallo sigue activo después de agotar su recuperación, si no hay recuperación automática aplicable o si necesitas intervenir, como cuando caduca la sesión. Las comprobaciones pendientes se pueden consultar en **Personalizar → Ver diagnóstico**. Allí puedes copiar el informe técnico sanitizado.
+**Consultar error** aparece si un fallo sigue activo después de agotar su recuperación, si no hay recuperación automática aplicable o si necesitas intervenir, como cuando caduca la sesión. Las comprobaciones pendientes se pueden consultar en **Personalizar → Modo desarrollador → Ver diagnóstico**. Allí puedes copiar el informe técnico sanitizado.
 
 ## Límites
 

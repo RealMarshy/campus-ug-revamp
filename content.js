@@ -909,21 +909,26 @@
       </fieldset>
     </div>
     <div id="ugr-preferences" class="ugr-preferences" hidden>
+      <div class="ugr-preference-fields">
       <div class="ugr-title-setting">
         <label>Título del panel <input type="text" data-title maxlength="${C.titleLimit}"></label>
         <button type="button" data-reset-title>Restablecer título</button>
       </div>
-      <div class="ugr-preference-fields">
-        <label>Ubicación del estado <select data-position><option value="top">Arriba</option><option value="bottom">Abajo</option><option value="hidden">Oculto</option></select></label>
-        <div class="ugr-status-visibility"><span>Visibilidad</span><button type="button" data-toggle-status aria-controls="ugr-status" aria-expanded="true">Ocultar estado</button><button type="button" data-open-diagnostic aria-controls="ugr-diagnostic">Ver diagnóstico</button></div>
+        <label>Vista de categorías <select data-mode><option value="tabs">Pestañas rápidas</option><option value="custom">Lista simple (Antiguo)</option></select></label>
         <label>Tamaño del panel <select data-size><option value="compact">Compacto</option><option value="normal">Normal</option><option value="wide">Amplio</option></select></label>
         <label>Actividades visibles <select data-limit><option value="5">5</option><option value="10">10</option><option value="30">30</option><option value="">Sin límite</option></select></label>
-        <label>Vista de categorías <select data-mode><option value="tabs">Pestañas rápidas</option><option value="custom">Lista simple (Antiguo)</option></select></label>
-      </div>
-      <div class="ugr-preference-fields">
-        <label>Actualización automática <select data-auto-refresh-minutes><option value="0">Desactivada</option><option value="10">Cada 10 minutos</option><option value="15">Cada 15 minutos</option><option value="30">Cada 30 minutos</option></select></label>
         <label>Apariencia <select data-appearance><option value="auto">Automático</option><option value="light">Claro</option><option value="dark">Oscuro</option></select></label>
+        <label>Tamaño de letra <select data-font-size><option value="small">Pequeño</option><option value="normal">Normal</option><option value="large">Grande</option></select></label>
       </div>
+      <details data-developer>
+        <summary>Modo desarrollador</summary>
+        <div class="ugr-advanced-fields">
+          <label>Ubicación del estado <select data-position><option value="top">Arriba</option><option value="bottom">Abajo</option><option value="hidden">Oculto</option></select></label>
+          <button type="button" data-toggle-status aria-controls="ugr-status" aria-expanded="true">Ocultar estado</button>
+          <button type="button" data-open-diagnostic aria-controls="ugr-diagnostic">Ver diagnóstico</button>
+          <label>Actualización automática <select data-auto-refresh-minutes><option value="0">Desactivada</option><option value="10">Cada 10 minutos</option><option value="15">Cada 15 minutos</option><option value="30">Cada 30 minutos</option></select></label>
+        </div>
+      </details>
       <button type="button" data-reset-presentation>Restaurar configuración predeterminada</button>
       <div data-presentation-error role="alert"></div>
       <a class="ugr-credits-link" href="#ugr-credits" aria-haspopup="dialog" aria-controls="ugr-credits">Créditos</a>
@@ -966,7 +971,7 @@
   ui('#ugr-diagnostic').addEventListener('toggle',()=>{
     const diagnostic=ui('#ugr-diagnostic');
     if(diagnostic.open||!statusBlock.hidden||diagnostic.parentElement===statusBlock)return;
-    const opener=ui(diagnostic.parentElement===settings?'[data-open-diagnostic]':'[data-show-diagnostic]');
+    const opener=ui(settings.contains(diagnostic)?'[data-open-diagnostic]':'[data-show-diagnostic]');
     const restoreFocus=diagnostic.contains(document.activeElement);
     statusBlock.append(diagnostic);
     if(restoreFocus)opener.focus();
@@ -1269,6 +1274,7 @@
     displayDateRange();
     displayTitle();
     panel.dataset.size=preferences.size;
+    panel.dataset.fontSize=ui('[data-font-size]').value=preferences.fontSize??'normal';
     for(const field of ['position','mode','size','limit'])ui(`[data-${field}]`).value=preferences[field]??'';
     ui('[data-auto-refresh-minutes]').value=preferences.autoRefreshMinutes;
     for(const input of panel.querySelectorAll('[data-category]'))input.checked=preferences[categoryPreference()].includes(input.value);
@@ -1439,7 +1445,7 @@
     if(openDiagnostic){
       const diagnostic=ui('#ugr-diagnostic');
       if(statusBlock.hidden){
-        if(settings.contains(openDiagnostic))settings.append(diagnostic);
+        if(settings.contains(openDiagnostic))ui('.ugr-advanced-fields').append(diagnostic);
         else warning.after(diagnostic);
       }
       diagnostic.open=true;
@@ -1482,8 +1488,9 @@
       return;
     }
     if(e.target.closest('[data-reset-presentation]')){
+      ui('[data-developer]').open=false;
       state.tab='proximas';
-      updatePresentation({...C.presentation(),restoreStatusBelow:false});
+      updatePresentation({...C.presentation(),fontSize:undefined,restoreStatusBelow:false});
       return;
     }
     if(e.target.closest('[data-cancel]')){
@@ -1528,6 +1535,10 @@
     }
     if(input===appearanceSelect){
       updatePresentation({appearance:input.value});
+      return;
+    }
+    if(input.matches('[data-font-size]')){
+      updatePresentation({fontSize:input.value});
       return;
     }
     if(input.matches('[data-auto-refresh-minutes]')){

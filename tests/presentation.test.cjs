@@ -83,6 +83,10 @@ test('Apariencia conserva las preferencias anteriores y valida el modo',()=>{
     assert.equal(saved.title,'Mi panel');
   }
   assert.equal(presentation({schema:1,appearance:'night'}).appearance,'auto');
+  assert.equal(presentation({schema:1,fontSize:'large'}).fontSize,'large');
+  assert.equal(presentation({schema:1,fontSize:'small'}).fontSize,'small');
+  assert.equal(presentation({schema:1,fontSize:'normal',developer:true}).fontSize,undefined);
+  assert.equal(presentation({schema:1,developer:true}).developer,undefined);
 });
 
 test('Unión por módulo y CMID, con foros en Pendientes y en su categoría de vencimiento',()=>{

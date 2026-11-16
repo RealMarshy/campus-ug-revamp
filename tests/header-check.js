@@ -1,4 +1,8 @@
 async page=>{
+  const openDeveloper=async()=>{
+    const section=page.locator('[data-developer]');
+    if(await section.count() && await section.getAttribute('open')===null)await section.locator(':scope > summary').click();
+  };
   const origin='http://127.0.0.1:8765', panel=page.locator('#ugr-panel');
   const selectors=['#ugr-title','[data-course]','[data-refresh]','[data-reverify-all]','[data-personalize]'];
   const refresh=panel.locator('[data-refresh]'), all=panel.locator('[data-reverify-all]');
@@ -107,7 +111,8 @@ async page=>{
   check(same(hiddenStatus,await snapshot())&&await personalize.evaluate(el=>el===document.activeElement)&&await panel.locator('#ugr-status').isHidden(),
     'Cancelar devuelve el foco a Personalizar y conserva el resumen oculto');
   check(await refresh.isEnabled()&&await all.isEnabled(),'Los botones vuelven a habilitarse tras cancelar');
-  await personalize.click();await status.click();await personalize.click();
+  await personalize.click();await openDeveloper();
+    await status.click();await personalize.click();
 
   await personalize.click();
   const appearance=panel.getByLabel('Apariencia');

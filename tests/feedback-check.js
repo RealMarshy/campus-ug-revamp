@@ -1,4 +1,8 @@
 async page=>{
+  const openDeveloper=async()=>{
+    const section=page.locator('[data-developer]');
+    if(await section.count() && await section.getAttribute('open')===null)await section.locator(':scope > summary').click();
+  };
   const origin='http://127.0.0.1:8765', context=page.context();
   const identity='<script>window.M={cfg:{"userid":42}};</script>';
   const notice=text=>'<div class="alert alert-warning alert-block" role="alert">'+text+'</div>';
@@ -126,11 +130,13 @@ async page=>{
   const initialLabel=await row(5).locator('.ugr-source').textContent();
   const readsBeforePosition=reads.length;
   await page.locator('[data-personalize]').click();
-  await page.locator('[data-position]').selectOption('bottom');
+  await openDeveloper();
+    await page.locator('[data-position]').selectOption('bottom');
   check(initialLabel==='Respondida según Moodle'&&
     (await row(5).locator('.ugr-source').textContent()).startsWith('Respondida según Moodle · Verificado el '),
     'Una encuesta respondida muestra el sello solo con el estado visible');
-  await page.locator('[data-position]').selectOption('hidden');
+  await openDeveloper();
+    await page.locator('[data-position]').selectOption('hidden');
   await page.locator('[data-personalize]').click();
   check(await row(5).locator('.ugr-source').textContent()===initialLabel&&reads.length===readsBeforePosition,
     'Volver a Oculto conserva la respuesta sin releer la encuesta');

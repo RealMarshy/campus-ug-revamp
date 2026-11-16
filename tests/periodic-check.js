@@ -1,4 +1,8 @@
 async (page,baseline)=>{
+  const openDeveloper=async()=>{
+    const section=page.locator('[data-developer]');
+    if(await section.count() && await section.getAttribute('open')===null)await section.locator(':scope > summary').click();
+  };
   const origin='http://127.0.0.1:8765', context=page.context(), minute=60000, start=Date.UTC(2026,10,11,15);
   const wire=[], cases=new Set(), measurements={};
   const accounts=new Map(), expired=new Set(), activityErrors=new Map(), calendarErrors=new Map();
@@ -109,6 +113,7 @@ async (page,baseline)=>{
   };
   const frequency=async n=>{
     await open();
+    await openDeveloper();
     await setting('auto-refresh-minutes').selectOption(String(n));
     await page.waitForFunction(n=>JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':42:presentation']?.autoRefreshMinutes===n,n);
   };

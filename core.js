@@ -853,6 +853,7 @@
       course:typeof saved.course === 'string' && /^\d{1,20}$/.test(saved.course) ? saved.course : 'all',
       autoRefreshMinutes:[0,10,15,30].includes(saved.autoRefreshMinutes) ? saved.autoRefreshMinutes : 10,
       appearance:['auto','light','dark'].includes(saved.appearance) ? saved.appearance : 'auto',
+      ...(['small','large'].includes(saved.fontSize)?{fontSize:saved.fontSize}:{}),
     };
   }
 
