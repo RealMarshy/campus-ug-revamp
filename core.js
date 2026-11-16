@@ -69,8 +69,9 @@
         ['quiz_no_attempts','quiz_unavailable','quiz_not_yet_open','quiz_scheduled','quiz_closed_unknown'].includes(s.absence)?s.absence:null;
       const quizOpenAt=['quiz_not_yet_open','quiz_scheduled'].includes(absence)&&calendarTime(s.quizOpenAt)?s.quizOpenAt:null;
       const evaluationGrade=!s.done&&source==='moodle'&&key.startsWith('assign:')?gradeText(s.evaluationGrade):null;
-      const assignAvailability=!s.done&&source==='moodle'&&key.startsWith('assign:')&&
-        ['group_blocked','add_submission','no_submission_option'].includes(s.assignAvailability)?s.assignAvailability:null;
+      const assignStates=s.done?['edit_submission','no_edit_submission']:['group_blocked','add_submission','no_submission_option'];
+      const assignAvailability=source==='moodle'&&key.startsWith('assign:')&&
+        assignStates.includes(s.assignAvailability)?s.assignAvailability:null;
       out.auto[key] = {done:s.done,t,source,...(s.recheck ? {recheck:true} : {}),...(absence?{absence}:{}),...(quizOpenAt?{quizOpenAt}:{}),...(evaluationGrade?{evaluationGrade}:{}),
         ...(assignAvailability?{assignAvailability}:{}),...(absence==='quiz_no_attempts'&&s.available===true?{available:true}:{}),
         ...(key.startsWith('feedback:')&&source==='moodle'&&!s.done&&feedbackStates.includes(s.feedbackState)?{feedbackState:s.feedbackState}:{})};
@@ -445,6 +446,42 @@
     return reports[0];
   }
 
+  function assignmentEditing(main,origin,cmid,normalize,statusNodes) {
+    const excluded='#intro, .intro, .description, .activity-description, .feedback, .assignsubmission, aside, nav, footer, [aria-busy="true"]';
+    const visible=node=>!hiddenEvidence(node)&&!node.closest(excluded);
+    const summaries=[...main.querySelectorAll('.submissionstatustable')].filter(visible);
+    if(summaries.length!==1||!statusNodes.some(node=>summaries[0].contains(node)&&visible(node)&&
+      (node.matches('.submissionstatussubmitted')||/^(Enviado para calificar|Submitted for grading)$/i.test(normalize(node.textContent)))))return;
+
+    // Moodle renders the explicit lock in the student's submission summary.
+    const locked=[...summaries[0].querySelectorAll('.submissionlocked')].some(node=>visible(node)&&
+      /^(This assignment is not accepting submissions|Submission changes not allowed|Esta tarea no acepta entregas|No se permiten cambios en las entregas)\.?$/i.test(normalize(node.textContent)));
+    const controls=[...main.querySelectorAll('a[href], button, input[type="submit"]')].filter(control=>
+      visible(control)&&!control.closest('.submissionstatustable')&&
+      /^(Edit submission|Editar entrega)$/i.test(normalize(control.value||control.textContent)));
+    const states=new Set(controls.map(control=>{
+      const link=control.matches('a[href]');
+      const form=control.form;
+      if(!link&&(!control.matches('button[type="submit"], button:not([type]), input[type="submit"]')||
+        !form||form.method!=='get'||!main.contains(form)||!visible(form)||form.closest('.submissionstatustable')||
+        control.hasAttribute('formaction')||control.hasAttribute('formmethod')))return 'ambiguous';
+      try{
+        const url=new URL(link?control.getAttribute('href'):form.getAttribute('action'),origin);
+        if(url.origin!==origin||url.pathname!=='/mod/assign/view.php'||url.hash||url.username||url.password||
+          (!link&&url.search))return 'ambiguous';
+        const fields=link?[...url.searchParams]:[...form.elements].filter(field=>field.name).map(field=>
+          field.matches('input[type="hidden"]:not(:disabled)')?[field.name,field.value]:[]);
+        if(fields.length!==2||!fields.some(([name,value])=>name==='id'&&value===cmid)||
+          !fields.some(([name,value])=>name==='action'&&value==='editsubmission'))return 'ambiguous';
+        return control.matches(':disabled')||control.closest('[aria-disabled="true"], .disabled')||
+          form?.closest('[aria-disabled="true"], .disabled')?'disabled':'enabled';
+      }catch{return 'ambiguous';}
+    }));
+    if(locked)states.add('disabled');
+    if(states.size===1&&states.has('enabled'))return 'edit_submission';
+    if(states.size===1&&states.has('disabled'))return 'no_edit_submission';
+  }
+
   function mooveQuizStates(list,normalize) {
     const headings=new Set();
     const cards=[];
@@ -587,6 +624,7 @@
       if(done&&pageView==='view'&&main&&!evidence.mainBusy)grade=assignmentGrade(main,normalize);
       const ready=pageView==='view'&&main&&!main.closest('[aria-busy="true"]');
       const moduleMatches=!!positiveId(cmid)&&[...doc.body.classList].filter(name=>name.startsWith('cmid-')).join(' ')==='cmid-'+cmid;
+      if(done&&ready&&moduleMatches)assignAvailability=assignmentEditing(main,origin,cmid,normalize,nodes);
       if(traceActivity)assignGroup={view:pageView,hasMain:!!main,moduleMatches,eligible:!!(ready&&moduleMatches&&!done),
         hasStatusTable:!!main?.querySelector('.submissionstatustable'),groupNotice:'not_checked',state:done?'submitted':'no_submission'};
       if(!done&&ready){

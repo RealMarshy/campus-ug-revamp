@@ -8,7 +8,7 @@ Los accesos rápidos **Categorías** y **Tipos de actividad** permiten elegir qu
 
 **Fecha** filtra por vencimiento con un intervalo manual o con semanas y meses relativos a hoy. Los días inicial y final se incluyen completos. Las actividades sin vencimiento solo aparecen cuando Fecha está desactivado. Pulsa de nuevo el rango rápido activo para quitar el filtro Fecha y conservar los demás filtros. Puedes sustituir un rango rápido por uno manual con Aplicar fechas.
 
-Revamp distingue las tareas que permiten agregar una entrega, las bloqueadas por falta de grupo y las que no ofrecen un control visible para entregar. Una evaluación explícita puede mostrarse como **Calificada sin envío en Moodle**. En cuestionarios, reconoce las tarjetas de intentos de Moove y muestra una apertura futura verificada en **Próximas** y **Pendientes**.
+Revamp distingue las tareas que permiten agregar una entrega, las bloqueadas por falta de grupo y las que tienen confirmada la ausencia de una opción para entregar. En tareas entregadas, también informa si Moodle ofrece un control válido para editar la entrega o confirma una restricción. Si el permiso de edición es incierto, solo muestra la entrega confirmada. Una evaluación explícita puede mostrarse como **Calificada sin envío en Moodle**. En cuestionarios, reconoce las tarjetas de intentos de Moove y muestra una apertura futura verificada en **Próximas** y **Pendientes**.
 
 Una encuesta o un cuestionario con cierre confirmado y participación desconocida aparece en **Pendientes** y **Sin verificar**. La incertidumbre por sí sola no lo convierte en una actividad atrasada. Si combinas esas dos categorías en la Lista simple, cada actividad aparece una sola vez.
 

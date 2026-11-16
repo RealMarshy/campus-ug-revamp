@@ -786,8 +786,12 @@
     if(['quiz_unavailable','quiz_not_yet_open','quiz_scheduled'].includes(s?.absence))return 'Todavía no disponible · El cuestionario aún no permite iniciar un intento';
     if(f)return `Desconocido por error: ${C.ERROR_LABELS[f.code]}. ${s ? 'Último estado: '+(s.done?'entregada':'no entregada')+'. ' : ''}Reintento automático desde ${new Date(f.retryAt).toLocaleTimeString('es-EC')}. Puedes reverificar esta actividad.`;
     if(!s || s.source==='unknown') return 'Sin verificar · origen del estado anterior desconocido';
-    const label=s.done?'Entrega confirmada por Moodle':s.assignAvailability==='group_blocked'?'Sin entrega · Bloqueada por grupo':
-      s.assignAvailability==='add_submission'?'Sin entrega · Disponible para agregar entrega':
+    const label=s.done?(it.mod==='assign'?({
+      edit_submission:'Entregada según Moodle · Disponible para editar entrega',
+      no_edit_submission:'Entregada según Moodle · Sin opción para editar entrega'
+    }[s.assignAvailability]??'Entregada según Moodle'):'Entrega confirmada por Moodle'):
+      s.assignAvailability==='group_blocked'?'Sin entrega · Bloqueada por grupo':
+      s.assignAvailability==='add_submission'?'No entregada según Moodle · Disponible para agregar entrega':
       s.assignAvailability==='no_submission_option'?'No entregada según Moodle · Sin opción para entregar':'No entregada según Moodle';
     const time=stamps[key(it)]?.t??s.t;
     return time>0?`${label} · ${new Date(time).toLocaleString('es-EC')}`:label;

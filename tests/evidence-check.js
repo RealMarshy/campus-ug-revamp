@@ -39,6 +39,11 @@ async (page,baseline=false)=>{
     '<button type="submit">Volver al curso</button></form>';
   const addSubmission='<form action="/mod/assign/view.php" method="get"><input type="hidden" name="id" value="3">'+
     '<input type="hidden" name="action" value="editsubmission"><button type="submit">Agregar entrega</button></form>';
+  const submitted=mooveStatus.replace('No se ha enviado nada en esta tarea','Enviado para calificar');
+  const editSubmission=addSubmission.replace('Agregar entrega','Editar entrega');
+  const disabledEdit=editSubmission.replace('type="submit"','type="submit" disabled');
+  const lockedSubmission=submitted.replace('</table>','<tr><th></th><td class="submissionlocked">'+
+    'Esta tarea no acepta entregas</td></tr></table>');
   const groupNotice='<div class="alert alert-danger" role="alert">No perteneces a ningún grupo.</div>';
   const groupBlocked=noSubmission.replace('<table>','<table><tr><th>Grupo</th><td>'+groupNotice+'</td></tr>');
   let evaluation=null, evaluationOffline=false, assignBody=null;
@@ -178,6 +183,40 @@ async (page,baseline=false)=>{
     });
   },{origin,groupBlocked,groupNotice,noSubmission,mooveStatus,returnToCourse});
   for(const [i,{ok,diagnostic}] of assignmentAvailability.entries())check(ok,'Disponibilidad de tareas '+(i+1)+' '+JSON.stringify(diagnostic));
+  const editLink='<a class="btn" href="/mod/assign/view.php?action=editsubmission&amp;id=3">Edit submission</a>';
+  const editCases=[
+    ['formulario GET',submitted+editSubmission,'edit_submission'],
+    ['enlace a la misma tarea',submitted+editLink,'edit_submission'],
+    ['control deshabilitado',submitted+disabledEdit,'no_edit_submission'],
+    ['enlace deshabilitado',submitted+editLink.replace('class="btn"','class="btn" aria-disabled="true"'),'no_edit_submission'],
+    ['bloqueo oficial de Moodle',lockedSubmission,'no_edit_submission'],
+    ['bloqueo y control contradictorios',lockedSubmission+editSubmission],
+    ['acciones contradictorias',submitted+editSubmission+disabledEdit],
+    ['control ausente y vencimiento pasado',submitted.replace('2 días','La tarea está retrasada por 2 días')+returnToCourse],
+    ['control oculto',submitted+'<div hidden>'+editSubmission+'</div>'],
+    ['control de otra tarea',submitted+editSubmission.replace('value="3"','value="4"')],
+    ['identidad de módulo distinta',submitted+editSubmission,undefined,'4'],
+    ['enlace a otro módulo',submitted+editLink.replace('/mod/assign/','/mod/quiz/')],
+    ['enlace con parámetro duplicado',submitted+editLink.replace('id=3','id=3&amp;id=3')],
+    ['ruta de edición de otra persona',submitted+editLink.replace('id=3','id=3&amp;userid=99')],
+    ['formulario POST',submitted+editSubmission.replace('method="get"','method="post"')],
+    ['control con destino sobrescrito',submitted+editSubmission.replace('type="submit"','type="submit" formaction="/course/view.php"')],
+    ['control en comentarios',submitted.replace('Comentarios (0)','Editar entrega')],
+    ['control en instrucciones',submitted+'<div class="activity-description">'+editSubmission+'</div>'],
+    ['aviso fuera del resumen',submitted+'<div class="submissionlocked">Esta tarea no acepta entregas</div>'],
+    ['aviso oculto',lockedSubmission.replace('class="submissionlocked"','class="submissionlocked" hidden')],
+    ['estado oficial fuera del resumen','<span class="submissionstatussubmitted">Enviado para calificar</span>'+editSubmission],
+    ['cuenta distinta',submitted+editSubmission,undefined,'3','99','ACCOUNT_CHANGED'],
+  ];
+  const editResults=await page.evaluate(({origin,editCases})=>editCases.map(([name,html,expected,cmid='3',user='42',error])=>{
+    const dom=new DOMParser().parseFromString(
+      '<body id="page-mod-assign-view" class="cmid-3"><script>M.cfg={"userid":42};</script><main>'+html+'</main></body>','text/html');
+    try{
+      const actual=UGCore.recognize(dom,'assign',user,origin,cmid);
+      return [name,!error&&actual.done===true&&actual.assignAvailability===expected,actual.assignAvailability];
+    }catch(e){return [name,e.code===error,e.code];}
+  }),{origin,editCases});
+  for(const [name,ok,result] of editResults)check(ok,'Edición de tareas: '+name+' ('+result+')');
   const gradeCases={
     zero:{body:feedback('0,00/10,00'),grade:'0,00/10,00'},
     maxOnly:{body:feedback('10',''),error:'STATE_UNKNOWN'},
@@ -257,13 +296,13 @@ async (page,baseline=false)=>{
   other.add(availabilityAccount);await availabilityAccount.goto(origin);await idle(availabilityAccount);
   await tab('Próximas',availabilityAccount);
   await row(3,availabilityAccount).locator('[data-reverify]').click();await idle(availabilityAccount);
-  check((await row(3,availabilityAccount).locator('.ugr-source').textContent()).startsWith('Sin entrega · Disponible para agregar entrega')&&
+  check((await row(3,availabilityAccount).locator('.ugr-source').textContent()).startsWith('No entregada según Moodle · Disponible para agregar entrega')&&
     await label()===noOptionLabel,'La disponibilidad de la misma tarea se aísla por cuenta');
   await availabilityAccount.close();
   const futureTask=assignBody;
   assignBody=futureTask+addSubmission;
   await reread(3);
-  check((await label()).startsWith('Sin entrega · Disponible para agregar entrega'),
+  check((await label()).startsWith('No entregada según Moodle · Disponible para agregar entrega'),
     'Un control válido prevalece aunque la apertura del encabezado sea futura');
   assignBody=futureTask;
   await reread(3);
@@ -287,7 +326,7 @@ async (page,baseline=false)=>{
     'La tarea sigue pendiente y el indicador sobrevive a la recarga desde caché');
   assignBody=noSubmission+addSubmission;
   await reread(3);
-  check((await label()).startsWith('Sin entrega · Disponible para agregar entrega'),
+  check((await label()).startsWith('No entregada según Moodle · Disponible para agregar entrega'),
     'La lectura válida reemplaza el bloqueo por disponibilidad de la misma tarea');
   const taskManual=row(3).locator('[data-manual-choice]');
   check(await taskManual.count()===0&&await row(3).locator('[data-toggle]').count()===1,
@@ -298,7 +337,7 @@ async (page,baseline=false)=>{
   await taskManual.selectOption('no');await tab('Pendientes');
   check((await label()).startsWith('Declarada no realizada'),'Declaración negativa de tarea');
   await taskManual.selectOption('');
-  check((await label()).startsWith('Sin entrega · Disponible para agregar entrega')&&calls.length===manualReads,
+  check((await label()).startsWith('No entregada según Moodle · Disponible para agregar entrega')&&calls.length===manualReads,
     'Retirar una declaración restaura disponibilidad sin lecturas nuevas');
   assignBody=groupBlocked+feedback('8 / 10');
   await reread(3);await tab('Entregadas');
@@ -306,6 +345,27 @@ async (page,baseline=false)=>{
     'La evaluación sin envío conserva su prioridad sobre el bloqueo');
   assignBody=groupBlocked.replace('Todavía no se han realizado envíos','Enviado para calificar')+addSubmission;
   await reread(3);
-  check((await label()).startsWith('Entrega confirmada por Moodle'),'La entrega confirmada conserva prioridad');
+  check((await label()).startsWith('Entregada según Moodle · ')&&!(await label()).includes('Bloqueada'),
+    'La entrega confirmada conserva prioridad sin deducir edición a partir de un control de alta');
+  const gradeReport=feedback('8 / 10');
+  const assignmentStamp=()=>page.evaluate(()=>JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':42:verification'].records['assign:3'].t);
+  const verifyEditing=async(body,expected)=>{
+    const before=calls.length;
+    assignBody=body+gradeReport;
+    await reread(3);
+    const actual=await label(), stamp=new Date(await assignmentStamp()).toLocaleString('es-EC').replace(/\s/g,' ');
+    const gradeLabel=await grade(3).textContent();
+    check(actual===expected+' · '+stamp&&calls.length===before+1&&calls.at(-1)===3&&
+      gradeLabel==='Calificación: 8 / 10','Nota, sello y lectura única: '+JSON.stringify({actual,stamp,gradeLabel,reads:calls.slice(before)}));
+    return actual;
+  };
+  const editable=await verifyEditing(submitted+editSubmission,'Entregada según Moodle · Disponible para editar entrega');
+  const editStamp=await assignmentStamp();
+  await page.reload();await idle();await tab('Entregadas');
+  check(await label()===editable&&await assignmentStamp()===editStamp&&(await diag()).lastRun.checked===0&&
+    await grade(3).textContent()==='Calificación: 8 / 10','Edición, calificación y fecha sobreviven a la recarga desde almacenamiento');
+  await verifyEditing(lockedSubmission,'Entregada según Moodle · Sin opción para editar entrega');
+  await verifyEditing(submitted+returnToCourse,'Entregada según Moodle');
+  await verifyEditing(submitted+editSubmission,'Entregada según Moodle · Disponible para editar entrega');
   return {passed,measured};
 }

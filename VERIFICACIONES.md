@@ -1,5 +1,17 @@
 # Verificaciones de Campus UG Revamp
 
+## Estados de entrega y edición de tareas · 2.5.1
+
+La verificación reutiliza el GET de la vista principal. Para acompañar una entrega confirmada con un estado de edición, Revamp comprueba la cuenta, el módulo, el `cmid` y el resumen visible de entrega. Reconoce «Editar entrega» o «Edit submission» en un formulario GET o enlace con destino a la misma tarea, con los parámetros `id` y `action=editsubmission`. El control debe estar habilitado para informar disponibilidad. [Control de edición en Moodle 4.5](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/assign/classes/output/user_submission_actionmenu.php#L99-L106)
+
+Un control coincidente deshabilitado o el aviso oficial de bloqueo `.submissionlocked` dentro del resumen permiten informar «Sin opción para editar entrega». Con señales contradictorias, controles ambiguos, un vencimiento pasado o ausencia de un control, el resultado conserva únicamente «Entregada según Moodle». Se excluyen controles de navegación, comentarios, instrucciones y otros módulos. La calificación, el sello de verificación y las declaraciones manuales conservan su tratamiento. [Aviso oficial de bloqueo en el resumen de Moodle](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/assign/classes/output/renderer.php#L693-L700)
+
+La disponibilidad se guarda en el campo existente `assignAvailability`. Al probar Moodle UG, recarga la extensión desde `chrome://extensions`, recarga el Área personal y reverifica una tarea entregada que muestre «Editar entrega». Repite con una tarea entregada que muestre el aviso de bloqueo. Puedes contrastar el resultado con la vista principal de cada tarea sin entrar al formulario de edición.
+
+Pasaron **43 pruebas Node y 885 comprobaciones en 26 suites de Chrome**, sin fallos ni omisiones. La suite de evidencia comprobó las variantes de entrega y edición, estados ambiguos, cuenta y módulo, calificación, marcas manuales y persistencia. La comparación de evidencia mantuvo 24 solicitudes totales y 17 comprobaciones de actividad en carga inicial. Con caché vigente registró una sola consulta de sesión y cero lecturas de actividad. La suite de sesión volvió a pasar las regresiones de `REDIRECT`.
+
+El ZIP extraído cargó como Manifest V3 en Chrome. La tarea de prueba hizo un GET inicial y un GET al reverificar. Tras reiniciar Chrome y cargar la misma extensión temporal, la etiqueta, la nota y el sello se conservaron con cero GET de actividad. Todos los datos de las pruebas fueron sintéticos. El ZIP de desarrollo contiene ocho archivos públicos y pesa **75.817 bytes**. SHA-256 `A6893350CA401ED606A5021430310CEE5BE3538D2C135ABAB7900FFB6753CF46`.
+
 ## Recuperación de sesión y recargas · 2.5.1
 
 En 2.5.0, la condición `!force` aplicaba la espera de `failures.session` a Actualizar, a la sincronización normal y a la periódica antes de consultar la sesión. El modo individual ya omitía esa consulta y comprobaba la identidad de la actividad. Reverificar todo evitaba esa espera y conservaba su alcance de seis meses. Chrome reprodujo un 302 sintético rechazado en la consulta a `/my/`, seguido de cero lecturas al pulsar Actualizar cuando la sesión ya era válida.
@@ -23,7 +35,7 @@ Se ejecuta con `node tests/run-browser.cjs session-baseline session` y `UG_PLAYW
 
 La diferencia de la primera fila fue inferior a 1 ms en los tres escenarios de la corrida final. La primera corrida registró variaciones de hasta 6 ms y el delta de JavaScript mostró variabilidad entre recargas. Los conteos de renderizados y HTTP se conservaron. Estas mediciones locales no permiten atribuir la lentitud observada en Moodle UG a Revamp.
 
-Tras desbloquear el fixture con una actividad nueva, Actualizar pasó de cero solicitudes en 2.5.0 a una comprobación de sesión, tres meses de calendario y una lectura de la nueva actividad en 2.5.1. Dos pestañas simultáneas compartieron una comprobación y tres lecturas de calendario. El ZIP extraído cargó en Chrome 157 y reanudó sesión, calendario y actividad después de un 302 sintético. El paquete público de ocho archivos pesa **75.125 bytes**. SHA-256 `7347FF91EA05EEE49E04D07B716EFE6CD2EDBE52C53DD70892EDF8924466A280`.
+Tras desbloquear el fixture con una actividad nueva, Actualizar pasó de cero solicitudes en 2.5.0 a una comprobación de sesión, tres meses de calendario y una lectura de la nueva actividad en 2.5.1. Dos pestañas simultáneas compartieron una comprobación y tres lecturas de calendario. El ZIP de esa validación cargó en Chrome 157 y reanudó sesión, calendario y actividad después de un 302 sintético.
 
 Pasaron **43 pruebas Node y 858 comprobaciones en 26 suites de Chrome**, sin fallos ni omisiones. La suite nueva aportó 22 comprobaciones y la comparación con 2.5.0 aportó cuatro. La primera corrida conjunta detectó que la coordinación abarcaba también una sesión sana. Se acotó la coordinación nueva a las actualizaciones relacionadas con `REDIRECT` y se repitió toda la batería. Las regresiones existentes verifican la compatibilidad del almacenamiento, las calificaciones, las declaraciones y el funcionamiento local de los filtros.
 

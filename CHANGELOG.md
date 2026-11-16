@@ -5,6 +5,7 @@ Este historial resume las versiones de Revamp, derivado de [Panel de Tareas UG](
 ## 2.5.1 (desarrollo)
 
 - Actualizar puede volver a comprobar la sesión tras una redirección bloqueada. Las actualizaciones manuales simultáneas se coordinan entre pestañas. La actualización automática conserva su espera.
+- Unifica las etiquetas de tareas sin entrega y distingue las entregas editables de las explícitamente bloqueadas. La señal de edición se comprueba al leer la vista principal de la tarea.
 
 ## 2.5.0 — The Daniel Update
 
