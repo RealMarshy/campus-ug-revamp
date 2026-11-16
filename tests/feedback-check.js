@@ -123,6 +123,17 @@ async page=>{
   check(await page.locator('[data-minimal-warning]').isHidden(),'Sin advertencia por indisponibilidad ni error recuperado');
   await page.locator('[data-tab="entregadas"]').click();
   check(await row(5).getByText('Respondida según Moodle').isVisible(),'Aviso inequívoco en vista principal del fixture');
+  const initialLabel=await row(5).locator('.ugr-source').textContent();
+  const readsBeforePosition=reads.length;
+  await page.locator('[data-personalize]').click();
+  await page.locator('[data-position]').selectOption('bottom');
+  check(initialLabel==='Respondida según Moodle'&&
+    (await row(5).locator('.ugr-source').textContent()).startsWith('Respondida según Moodle · Verificado el '),
+    'Una encuesta respondida muestra el sello solo con el estado visible');
+  await page.locator('[data-position]').selectOption('hidden');
+  await page.locator('[data-personalize]').click();
+  check(await row(5).locator('.ugr-source').textContent()===initialLabel&&reads.length===readsBeforePosition,
+    'Volver a Oculto conserva la respuesta sin releer la encuesta');
   await page.reload();await idle();await page.locator('[data-tab="entregadas"]').click();
   check(await row(5).isVisible()&&await choice(5).count()===0&&reads.length===6,'La caché conserva el envío y oculta el selector');
   changed=true;

@@ -1,5 +1,22 @@
 # Verificaciones de Campus UG Revamp
 
+## Refinamiento de edición y fechas · 2.5.1
+
+| Evidencia de la tarea entregada | Texto adicional |
+| --- | --- |
+| Control de edición habilitado y validado para esa tarea | Puedes editar tu entrega |
+| Control validado deshabilitado o aviso oficial de bloqueo | No puedes editar tu entrega |
+| Vista principal completa, estado oficial de envío y ninguna señal de edición o restricción | No aparece la opción para editar |
+| Información incompleta, controles ambiguos, identidad sin confirmar o señales contradictorias | Se conserva el último estado académico confirmado sin afirmar si se puede editar |
+
+La ausencia visible se comprueba en el GET existente. Requiere coincidencia de cuenta y módulo, una sola fila oficial de envío en el resumen y el pie de página después del contenido principal. Si hay indicadores de carga, restricciones sin confirmar o posibles controles de edición ocultos o ambiguos, se omite el complemento. El fixture reproduce estas estructuras con datos sintéticos. [Orden de la vista de tareas en Moodle](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/assign/locallib.php#L5514-L5550) · [Pie de página de Moove](https://github.com/willianmano/moodle-theme_moove/blob/MOODLE_405_STABLE/templates/footer.mustache#L31)
+
+Oculto sigue siendo el valor predeterminado. Arriba y Abajo muestran el sello de la evidencia válida. Con Oculto, **Personalizar → Ver diagnóstico → Fechas de comprobación** permite consultar las fechas guardadas. Abrir Diagnóstico desde Personalizar o desde una advertencia conserva la preferencia y mantiene las fechas fuera de las filas. La lista muestra nombres de actividades localmente y queda fuera del JSON de diagnóstico. Las declaraciones manuales y las marcas históricas sin evidencia de Moodle carecen de sello automático.
+
+El ZIP Manifest V3 se cargó en Chrome con datos sintéticos. En dos reinicios conservó la elección de Abajo y luego la de Oculto, además de la nota, el estado y el sello original. Cambiar la posición y abrir las fechas en Diagnóstico generaron cero solicitudes. El escenario hizo un GET inicial de la tarea y cero GET de actividad al reabrir. El ZIP contiene ocho archivos públicos y pesa **77.150 bytes**. SHA-256 `050E3C8956C5776DCED01299D21D0DD384A69EB9A61ECA86123EB4A9AE2C7603`.
+
+Pasaron **43 pruebas Node y 917 comprobaciones en 26 suites de Chrome**, sin fallos ni omisiones. La regresión probó los cuatro escenarios de edición, ambas vistas, las tres posiciones, el valor predeterminado, preferencias guardadas, fechas de evidencia anterior y lectura local del Diagnóstico. La carga del escenario de evidencia mantuvo 24 solicitudes y 17 lecturas de actividad. Con datos vigentes, la recarga hizo una consulta de sesión y cero lecturas de actividad.
+
 ## Terminología estudiantil · 2.5.1
 
 El inventario previo encontró tres capas de texto en `content.js`. `sourceLabel` combinaba resultados del detector, disponibilidad, declaraciones y marcas de tiempo. `itemHtml` repetía «Entregada» y «Sin verificar» junto al vencimiento e incluía la nota. `manualChoice` explicaba las opciones por módulo, mientras el botón ✓ decía «Marcar como entregada», incluso para cuestionarios. `synchronize`, `load` y `displayStatus` mostraban el progreso, los resultados de consultas, la espera y los avisos. El resumen visible hablaba de «caché» y «fallos persistentes», y algunas filas mostraban el código traducido y la hora de reintento. Diagnóstico conserva el código, los contadores y los detalles originales.

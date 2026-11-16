@@ -41,6 +41,7 @@ async (page,baseline=false)=>{
       '<textarea name="content"></textarea><button type="submit">Guardar comentario</button></form></td></tr></table></div>');
   const returnToCourse='<form method="get" action="/course/view.php"><input type="hidden" name="id" value="7">'+
     '<button type="submit">Volver al curso</button></form>';
+  const pageFooter='<footer id="page-footer">Pie del sitio de prueba</footer>';
   const addSubmission='<form action="/mod/assign/view.php" method="get"><input type="hidden" name="id" value="3">'+
     '<input type="hidden" name="action" value="editsubmission"><button type="submit">Agregar entrega</button></form>';
   const submitted=mooveStatus.replace('No se ha enviado nada en esta tarea','Enviado para calificar');
@@ -50,7 +51,7 @@ async (page,baseline=false)=>{
     'Esta tarea no acepta entregas</td></tr></table>');
   const groupNotice='<div class="alert alert-danger" role="alert">No perteneces a ningún grupo.</div>';
   const groupBlocked=noSubmission.replace('<table>','<table><tr><th>Grupo</th><td>'+groupNotice+'</td></tr>');
-  let evaluation=null, evaluationOffline=false, assignBody=null;
+  let evaluation=null, evaluationOffline=false, assignBody=null, assignComplete=false;
   const calls=[], other=new Set();
   let passed=0;
   const check=(ok,label)=>{if(!ok)throw Error(label);passed++;};
@@ -86,7 +87,8 @@ async (page,baseline=false)=>{
     const html=id===3&&assignBody!==null?fixtureUser(p)===99?noSubmission+addSubmission:assignBody:id===3&&evaluation!==null?noSubmission+(fixtureUser(p)===99?'':evaluation):mod==='quiz'?quizzes[id-titles.length-1]:
       '<div class="submissionstatus'+(id===3?'new':'submitted')+'"></div>'+
       (grade?'<div class="feedbacktable"><table><tr><td>Calificación</td><td>'+grade+'</td></tr></table></div>':'');
-    return route.fulfill({body:'<body id="page-mod-'+mod+'-view" class="cmid-'+id+'">'+identity(p)+'<main>'+html+'</main></body>'});
+    return route.fulfill({body:'<body id="page-mod-'+mod+'-view" class="cmid-'+id+'">'+identity(p)+'<main>'+html+'</main>'+
+      (id===3&&assignComplete?pageFooter:'')+'</body>'});
   });
   const diag=async(p=page)=>JSON.parse(await p.locator('#ugr-diagnostics').textContent());
   const idle=(p=page)=>p.waitForFunction(()=>!document.querySelector('[data-refresh]')?.disabled&&
@@ -111,6 +113,13 @@ async (page,baseline=false)=>{
   check(measured.warmRequests===1&&measured.warmChecks===0,'Caché vigente reutilizada');
   if(baseline)return {passed,measured};
 
+  const personalize=page.locator('[data-personalize]'), position=page.locator('[data-position]');
+  await tab('Entregadas');
+  check(await position.inputValue()==='hidden'&&!(await row(1).locator('.ugr-source').textContent()).includes('Verificado el')&&
+    await grade(1).isVisible(),'Una instalación nueva oculta fechas y conserva la calificación');
+  await personalize.click();
+  await position.selectOption('top');
+  await personalize.click();
   await tab('Sin verificar');
   for(const [id,label] of [[8,'No iniciado'],[9,'Participación sin confirmar · El cuestionario todavía no está disponible'],[10,'Participación sin confirmar · El cuestionario todavía no está disponible'],[11,'Participación sin confirmar · El cuestionario todavía no está disponible'],
     [14,'Sin verificar'],[15,'Sin verificar'],[16,'Sin verificar']]){
@@ -211,10 +220,17 @@ async (page,baseline=false)=>{
     ['aviso oculto',lockedSubmission.replace('class="submissionlocked"','class="submissionlocked" hidden')],
     ['estado oficial fuera del resumen','<span class="submissionstatussubmitted">Enviado para calificar</span>'+editSubmission],
     ['cuenta distinta',submitted+editSubmission,undefined,'3','99','ACCOUNT_CHANGED'],
+    ['vista completa sin control',submitted+returnToCourse,'no_edit_option','3','42',null,pageFooter],
+    ['vista completa con plazo pasado',submitted.replace('2 días','La tarea está retrasada por 2 días'),'no_edit_option','3','42',null,pageFooter],
+    ['marcador de carga pendiente',submitted+'<div aria-busy="true"></div>',undefined,'3','42',null,pageFooter],
+    ['botón de edición oculto',submitted+editSubmission.replace('<form','<form hidden'),undefined,'3','42',null,pageFooter],
+    ['acción de edición con etiqueta ambigua',submitted+editLink.replace('Edit submission','Modificar'),undefined,'3','42',null,pageFooter],
+    ['control contradictorio en vista completa',submitted+addSubmission,undefined,'3','42',null,pageFooter],
+    ['clase de envío sin texto oficial',submitted.replace('Enviado para calificar','Estado de prueba').replace('class="submissionstatus"','class="submissionstatussubmitted"'),undefined,'3','42',null,pageFooter],
   ];
-  const editResults=await page.evaluate(({origin,editCases})=>editCases.map(([name,html,expected,cmid='3',user='42',error])=>{
+  const editResults=await page.evaluate(({origin,editCases})=>editCases.map(([name,html,expected,cmid='3',user='42',error,footer=''])=>{
     const dom=new DOMParser().parseFromString(
-      '<body id="page-mod-assign-view" class="cmid-3"><script>M.cfg={"userid":42};</script><main>'+html+'</main></body>','text/html');
+      '<body id="page-mod-assign-view" class="cmid-3"><script>M.cfg={"userid":42};</script><main>'+html+'</main>'+footer+'</body>','text/html');
     try{
       const actual=UGCore.recognize(dom,'assign',user,origin,cmid);
       return [name,!error&&actual.done===true&&actual.assignAvailability===expected,actual.assignAvailability];
@@ -370,6 +386,10 @@ async (page,baseline=false)=>{
     await grade(3).textContent()==='Calificación: 8 / 10','Edición, calificación y fecha sobreviven a la recarga desde almacenamiento');
   await verifyEditing(lockedSubmission,'Entregada según Moodle · No puedes editar tu entrega');
   await verifyEditing(submitted+returnToCourse,'Entregada según Moodle');
+  assignComplete=true;
+  const noEdit=await verifyEditing(submitted+returnToCourse,'Entregada según Moodle · No aparece la opción para editar');
+  await page.reload();await idle();await tab('Entregadas');
+  check(await label()===noEdit,'La ausencia de opción se conserva al recargar');
   const lastLabel=await verifyEditing(submitted+editSubmission,'Entregada según Moodle · Puedes editar tu entrega');
   const readsBeforeLayout=calls.length;
   await page.locator('[data-personalize]').click();
@@ -393,7 +413,27 @@ async (page,baseline=false)=>{
           el.getBoundingClientRect().right<=innerWidth+1&&relation.textContent==='Calificación: 8 / 10';
       }),`Estado, fecha y nota sin duplicación ni desbordamiento a ${width} px · ${mode} · ${theme}`);
     }
+    const beforePosition=calls.length;
+    const dateInRow=lastLabel.split(' · ').at(-1);
+    for(const value of ['hidden','bottom','top']){
+      await position.selectOption(value);
+      check(await label()===(value==='hidden'?lastLabel.slice(0,-dateInRow.length-3):lastLabel)&&
+        await grade(3).textContent()==='Calificación: 8 / 10'&&
+        (await row(3).locator('.ugr-when > div').first().textContent())===due,
+        'La posición cambia solo la fecha de comprobación · '+mode+' · '+value);
+    }
+    check(calls.length===beforePosition,'Cambiar ubicación no hace consultas · '+mode);
   }
+  await position.selectOption('hidden');
+  await page.locator('[data-open-diagnostic]').click();
+  await page.locator('[data-diagnostic-dates] > summary').click();
+  await page.waitForFunction(name=>document.querySelector('[data-dates-list]').textContent.includes(name),titles[2][1]);
+  check(await position.inputValue()==='hidden'&&
+    (await page.locator('[data-dates-list]').textContent()).includes(lastLabel.split(' · ').at(-1))&&
+    !(await label()).includes('Verificado el'),'Diagnóstico conserva la fecha con el estado oculto');
   check(calls.length===readsBeforeLayout,'Cambiar vistas, anchos y temas no añade solicitudes');
+  await page.waitForFunction(()=>JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':42:presentation']?.position==='hidden');
+  await page.reload();await idle();
+  check(await position.inputValue()==='hidden'&&!(await label()).includes('Verificado el'),'Oculto se conserva después de recargar');
   return {passed,measured};
 }

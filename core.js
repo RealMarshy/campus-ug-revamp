@@ -69,7 +69,7 @@
         ['quiz_no_attempts','quiz_unavailable','quiz_not_yet_open','quiz_scheduled','quiz_closed_unknown'].includes(s.absence)?s.absence:null;
       const quizOpenAt=['quiz_not_yet_open','quiz_scheduled'].includes(absence)&&calendarTime(s.quizOpenAt)?s.quizOpenAt:null;
       const evaluationGrade=!s.done&&source==='moodle'&&key.startsWith('assign:')?gradeText(s.evaluationGrade):null;
-      const assignStates=s.done?['edit_submission','no_edit_submission']:['group_blocked','add_submission','no_submission_option'];
+      const assignStates=s.done?['edit_submission','no_edit_submission','no_edit_option']:['group_blocked','add_submission','no_submission_option'];
       const assignAvailability=source==='moodle'&&key.startsWith('assign:')&&
         assignStates.includes(s.assignAvailability)?s.assignAvailability:null;
       out.auto[key] = {done:s.done,t,source,...(s.recheck ? {recheck:true} : {}),...(absence?{absence}:{}),...(quizOpenAt?{quizOpenAt}:{}),...(evaluationGrade?{evaluationGrade}:{}),
@@ -452,13 +452,15 @@
     const summaries=[...main.querySelectorAll('.submissionstatustable')].filter(visible);
     if(summaries.length!==1||!statusNodes.some(node=>summaries[0].contains(node)&&visible(node)&&
       (node.matches('.submissionstatussubmitted')||/^(Enviado para calificar|Submitted for grading)$/i.test(normalize(node.textContent)))))return;
+    if([...main.querySelectorAll('[aria-busy="true"]')].some(node=>!hiddenEvidence(node)))return;
 
     // Moodle renders the explicit lock in the student's submission summary.
     const locked=[...summaries[0].querySelectorAll('.submissionlocked')].some(node=>visible(node)&&
       /^(This assignment is not accepting submissions|Submission changes not allowed|Esta tarea no acepta entregas|No se permiten cambios en las entregas)\.?$/i.test(normalize(node.textContent)));
+    const editLabel=/^(Edit submission|Editar entrega)$/i;
     const controls=[...main.querySelectorAll('a[href], button, input[type="submit"]')].filter(control=>
       visible(control)&&!control.closest('.submissionstatustable')&&
-      /^(Edit submission|Editar entrega)$/i.test(normalize(control.value||control.textContent)));
+      editLabel.test(normalize(control.value||control.textContent)));
     const states=new Set(controls.map(control=>{
       const link=control.matches('a[href]');
       const form=control.form;
@@ -480,6 +482,23 @@
     if(locked)states.add('disabled');
     if(states.size===1&&states.has('enabled'))return 'edit_submission';
     if(states.size===1&&states.has('disabled'))return 'no_edit_submission';
+    if(states.size)return;
+
+    // Only report a missing option after both the student status row and the end of the view are present.
+    const footers=main.ownerDocument.querySelectorAll('#page-footer');
+    if(footers.length!==1||main.contains(footers[0])||!(main.compareDocumentPosition(footers[0])&Node.DOCUMENT_POSITION_FOLLOWING))return;
+    const [summary]=summaries;
+    const rows=[...summary.querySelectorAll('tr')].filter(row=>visible(row)&&row.cells.length===2&&
+      /^(Submission status|Estado de la entrega|Estado de entrega)$/i.test(normalize(row.cells[0].textContent)));
+    if(rows.length!==1||!visible(rows[0].cells[1])||
+      !/^(Enviado para calificar|Submitted for grading)$/i.test(normalize(rows[0].cells[1].textContent)))return;
+    if([...main.querySelectorAll('.submissionlocked, .availabilityinfo, .alert-warning, .alert-danger')].some(node=>visible(node))||
+      [...main.querySelectorAll('a, button, input, [role="button"], form[action]')].some(node=>
+        !node.closest('#intro, .intro, .description, .activity-description, .feedback, .assignsubmission, aside, nav, footer')&&(
+          /^(Edit submission|Editar entrega|Modificar entrega)$/i.test(normalize(node.value||node.textContent))||
+          node.matches('input[name="action"][value="editsubmission"]')||
+          ['href','action','formaction'].some(attr=>/[?&]action=editsubmission(?:[&#]|$)/i.test(node.getAttribute(attr)??'')))))return;
+    return 'no_edit_option';
   }
 
   function mooveQuizStates(list,normalize) {

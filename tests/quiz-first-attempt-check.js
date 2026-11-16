@@ -33,7 +33,7 @@ async page => {
   });
   await page.addInitScript(()=>{
     if(location.origin==='http://127.0.0.1:8765'&&!localStorage.fixture)
-      localStorage.fixture=JSON.stringify({['ugr2:'+location.origin+':42:presentation']:{schema:1,autoRefreshMinutes:0}});
+      localStorage.fixture=JSON.stringify({['ugr2:'+location.origin+':42:presentation']:{schema:1,autoRefreshMinutes:0,position:'top'}});
   });
   await page.goto(origin);
   await page.waitForFunction(() => !document.querySelector('[data-refresh]').disabled &&
@@ -269,7 +269,7 @@ async page => {
     sessionStorage.legacySeeded='1';
     const prefix='ugr2:'+location.origin+':42:',now=Date.now();
     localStorage.fixture=JSON.stringify({
-      [prefix+'presentation']:{schema:1,autoRefreshMinutes:0},
+      [prefix+'presentation']:{schema:1,autoRefreshMinutes:0,position:'top'},
       [prefix+'failures']:{'quiz:2':{code:'SELECTOR_MISSING',t:now-1000,retryAt:now+3600000,attempts:5,
         details:{identity:'match',pageView:'view',hasMain:true,mainBusy:false,attemptRows:0,attemptSummaries:0,quizStart:'missing'}}}
     });
@@ -307,7 +307,7 @@ async page => {
     await route.fulfill({response,json:data});
   });
   await page.evaluate(()=>{
-    localStorage.fixture=JSON.stringify({['ugr2:'+location.origin+':42:presentation']:{schema:1,autoRefreshMinutes:0}});
+    localStorage.fixture=JSON.stringify({['ugr2:'+location.origin+':42:presentation']:{schema:1,autoRefreshMinutes:0,position:'top'}});
   });
   const schedulePage=campusQuiz(formatDate(openAt),formatDate(closeAt));
   const closedAt=Math.floor(Date.now()/60000)*60000-86400000;
@@ -381,7 +381,7 @@ async page => {
     await route.fulfill({response,json:data});
   });
   await page.evaluate(()=>{
-    localStorage.fixture=JSON.stringify({['ugr2:'+location.origin+':42:presentation']:{schema:1,autoRefreshMinutes:0}});
+    localStorage.fixture=JSON.stringify({['ugr2:'+location.origin+':42:presentation']:{schema:1,autoRefreshMinutes:0,position:'top'}});
   });
   servedQuiz=closedPage;
   await page.goto(origin);await settled();

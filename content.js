@@ -592,7 +592,8 @@
       schedulePeriodic();
     }
     if(next.position!==previous.position)displayStatus(statusRecords);
-    return Object.keys(next).some(field=>!['appearance','position','restoreStatusBelow'].includes(field)&&
+    return (next.position==='hidden')!==(previous.position==='hidden')||
+      Object.keys(next).some(field=>!['appearance','position','restoreStatusBelow'].includes(field)&&
       JSON.stringify(next[field])!==JSON.stringify(previous[field]));
   }
   /* ---------- clasificación ---------- */
@@ -693,9 +694,9 @@
       if(JSON.stringify(next[field])!==JSON.stringify(preferences[field]) ||
          JSON.stringify(next[field])!==JSON.stringify(savedPreferences[field]))pendingPreferences[field]=next[field];
     }
-    applyPresentation(next);
+    const redraw=applyPresentation(next);
     if(delayed)displayTitle();
-    else if(Object.keys(changes).some(field=>!['appearance','position','restoreStatusBelow'].includes(field)))render();
+    else if(redraw)render();
     clearTimeout(preferenceTimer);
     if(delayed)preferenceTimer=setTimeout(flushPresentation,220);
     else flushPresentation();
@@ -769,20 +770,24 @@
   const assignmentOptions={
     add_submission:'Puedes agregar una entrega',no_submission_option:'No aparece la opción para entregar',
     group_blocked:'Necesitas pertenecer a un grupo',edit_submission:'Puedes editar tu entrega',
-    no_edit_submission:'No puedes editar tu entrega'
+    no_edit_submission:'No puedes editar tu entrega',no_edit_option:'No aparece la opción para editar'
   };
   const feedbackOptions={available:'Puedes responder la encuesta',in_progress:'Puedes continuar la encuesta',restricted:'Acceso restringido'};
   const unconfirmedParticipation='Participación sin confirmar';
   const retryActivity='No se pudo comprobar. Puedes volver a intentarlo';
+
+  function verifiedAt(it,auto=state.store.auto[key(it)],stamp=stamps[key(it)]){
+    if(auto?.source!=='moodle')return 0;
+    // A quiz or survey read may confirm availability while retaining an earlier completion.
+    return auto.done&&it.mod!=='assign'?auto.t:stamp?.stateAt===auto.t?stamp.t:auto.t;
+  }
 
   function sourceLabel(it){
     const id=key(it), status=completion(it), manual=state.store.manual[id], auto=state.store.auto[id], stamp=stamps[id];
     const failure=failures[id];
     const discordance=manual==='no'?'Tu declaración indica lo contrario':manual===false?'Hay una marca anterior diferente':'';
     const official=auto?.source==='moodle';
-    // Quiz and feedback can retain earlier completion after a read that only confirms availability.
-    const checkedAt=official?(auto.done&&it.mod!=='assign'?auto.t:stamp?.stateAt===auto.t?stamp.t:auto.t):0;
-    const verified=verificationDate(checkedAt);
+    const verified=preferences.position==='hidden'?'':verificationDate(verifiedAt(it,auto,stamp));
     if(evaluationGrade(it))return joinStatus('Calificada por Moodle','No se registra una entrega',
       failure?'Pendiente de volver a comprobar':'',verified);
     if(status.source==='moodle'&&status.done){
@@ -791,7 +796,7 @@
         discordance,verified);
     }
     if(status.done&&status.source!=='manual')
-      return joinStatus('Finalización registrada anteriormente',status.source==='historical'?'':'Origen sin confirmar',discordance);
+      return joinStatus('Finalización registrada anteriormente',status.source==='historical'?'':'Origen sin confirmar',discordance,verified);
     if(status.source==='manual'&&manual===false)
       return joinStatus(unconfirmedParticipation,confirmed(it)?'Hay una finalización anterior registrada':
         it.mod==='forum'?'Puedes declarar si participaste':'Hay una marca anterior');
@@ -878,7 +883,7 @@
       </div>
       <div class="ugr-preference-fields">
         <label>Ubicación del estado <select data-position><option value="top">Arriba</option><option value="bottom">Abajo</option><option value="hidden">Oculto</option></select></label>
-        <div class="ugr-status-visibility"><span>Visibilidad</span><button type="button" data-toggle-status aria-controls="ugr-status" aria-expanded="true">Ocultar estado</button></div>
+        <div class="ugr-status-visibility"><span>Visibilidad</span><button type="button" data-toggle-status aria-controls="ugr-status" aria-expanded="true">Ocultar estado</button><button type="button" data-open-diagnostic aria-controls="ugr-diagnostic" hidden>Ver diagnóstico</button></div>
         <label>Tamaño del panel <select data-size><option value="compact">Compacto</option><option value="normal">Normal</option><option value="wide">Amplio</option></select></label>
         <label>Actividades visibles <select data-limit><option value="5">5</option><option value="10">10</option><option value="30">30</option><option value="">Sin límite</option></select></label>
         <label>Vista de categorías <select data-mode><option value="tabs">Pestañas rápidas</option><option value="custom">Lista simple (Antiguo)</option></select></label>
@@ -902,7 +907,9 @@
       <div class="ugr-note" role="status" aria-live="polite"></div>
       <div data-state-summary class="ugr-note"></div>
       <div class="ugr-error" role="alert"></div>
-      <details class="ugr-diagnostic"><summary>Diagnóstico de verificaciones</summary><div data-diagnostic-summary></div><pre id="ugr-diagnostics" tabindex="0"></pre></details>
+      <details id="ugr-diagnostic" class="ugr-diagnostic"><summary>Diagnóstico de verificaciones</summary><div data-diagnostic-summary></div><pre id="ugr-diagnostics" tabindex="0"></pre>
+        <details data-diagnostic-dates><summary>Fechas de comprobación</summary><pre data-dates-list tabindex="0"></pre></details>
+      </details>
     </div>
     <div class="ugr-warning" hidden>
       <span data-minimal-warning role="alert"></span>
@@ -922,6 +929,15 @@
       <img class="ugr-credits-card" alt="Ilustración Hágalo Usted Mismo" width="480" height="683">
     </dialog>`;
   const ui=selector=>panel.querySelector(selector);
+  ui('[data-diagnostic-dates]').addEventListener('toggle',displayDiagnosticDates);
+  ui('#ugr-diagnostic').addEventListener('toggle',()=>{
+    const diagnostic=ui('#ugr-diagnostic');
+    if(diagnostic.open||!statusBlock.hidden||diagnostic.parentElement===statusBlock)return;
+    const opener=ui(diagnostic.parentElement===settings?'[data-open-diagnostic]':'[data-show-diagnostic]');
+    const restoreFocus=diagnostic.contains(document.activeElement);
+    statusBlock.append(diagnostic);
+    if(restoreFocus)opener.focus();
+  });
   const creditsLink=ui('.ugr-credits-link'), credits=ui('#ugr-credits'), card=ui('.ugr-credits-card');
   creditsLink.addEventListener('click',e=>{
     e.preventDefault();
@@ -1147,6 +1163,9 @@
     const show=preferences.position!=='hidden';
     ui('[data-position]').value=preferences.position;
     statusBlock.hidden=!show;
+    const diagnostic=ui('#ugr-diagnostic');
+    ui('[data-open-diagnostic]').hidden=show;
+    if(show&&diagnostic.parentElement!==statusBlock)statusBlock.append(diagnostic);
     if(preferences.position==='bottom'){
       if(listBody.nextElementSibling!==statusBlock)listBody.after(statusBlock);
     }else if(warning.previousElementSibling!==statusBlock)warning.before(statusBlock);
@@ -1162,6 +1181,17 @@
     warning.hidden=show||(!notice&&!records.length);
     const message=warning.hidden?'':notice;
     if(ui('[data-minimal-warning]').textContent!==message)ui('[data-minimal-warning]').textContent=message;
+  }
+
+  function displayDiagnosticDates(){
+    if(!ui('[data-diagnostic-dates]').open)return;
+    const dated=state.items.flatMap(it=>{
+      const date=verificationDate(verifiedAt(it));
+      return date?[`${it.name} · ${date}`]:[];
+    });
+    const list=ui('[data-dates-list]');
+    const text=dated.join('\n')||'No hay fechas de comprobación guardadas.';
+    if(list.textContent!==text)list.textContent=text;
   }
 
   function displayTitle() {
@@ -1299,6 +1329,7 @@
       autoRefreshEnabled:preferences.autoRefreshMinutes>0,autoRefreshIntervalMinutes:preferences.autoRefreshMinutes,
       lastPeriodicRun:lastPeriodicRun||null,nextPeriodicRun,lastPeriodicResult,
       effective,activeFailures:records,historicalForumFailures,recentIncidents:incidents},null,2);
+    displayDiagnosticDates();
   }
   async function changeManual(id, participation, fromSelector=false){
     try{
@@ -1366,10 +1397,15 @@
       else updatePresentation({position:'hidden',restoreStatusBelow:preferences.position==='bottom'});
       return;
     }
-    if(e.target.closest('[data-show-diagnostic]')){
-      updatePresentation({position:preferences.restoreStatusBelow?'bottom':'top',restoreStatusBelow:false});
-      ui('.ugr-diagnostic').open=true;
-      ui('.ugr-diagnostic summary').focus();
+    const openDiagnostic=e.target.closest('[data-open-diagnostic], [data-show-diagnostic]');
+    if(openDiagnostic){
+      const diagnostic=ui('#ugr-diagnostic');
+      if(statusBlock.hidden){
+        if(settings.contains(openDiagnostic))settings.append(diagnostic);
+        else warning.after(diagnostic);
+      }
+      diagnostic.open=true;
+      diagnostic.querySelector('summary').focus();
       return;
     }
     if(e.target.closest('[data-reset-title]')){updatePresentation({title:C.presentation().title});return;}

@@ -251,8 +251,10 @@ async page=>{
   check(await status.isHidden() && await setting('toggle-status').textContent()==='Mostrar estado','Estado oculto');
   check(await setting('minimal-warning').isHidden() && await setting('show-diagnostic').isVisible(),'Fallo anterior sin evidencia de reintento mantiene un acceso neutral al diagnóstico');
   await setting('show-diagnostic').click();
-  check(await status.isVisible() && await setting('position').inputValue()==='bottom' &&
-    await panel.locator('.ugr-diagnostic').getAttribute('open')!==null,'Acceso directo al diagnóstico restaura Abajo');
+  check(await status.isHidden() && await setting('position').inputValue()==='hidden' &&
+    await panel.locator('.ugr-diagnostic[open]').isVisible(),'Acceso directo al diagnóstico conserva Oculto');
+  await setting('toggle-status').press('Enter');
+  check(await status.isVisible()&&await setting('position').inputValue()==='bottom','Mostrar desde Diagnóstico restaura Abajo');
   await setting('toggle-status').press('Enter');
   check(await status.isHidden() && await setting('position').inputValue()==='hidden' &&
     await setting('toggle-status').getAttribute('aria-expanded')==='false','El botón y el selector comparten la preferencia');

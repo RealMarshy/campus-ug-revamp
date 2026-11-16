@@ -35,6 +35,7 @@ async (page, baseline=false) => {
       [prefix+'cache']:{schema:2,months,auto,updated:now-1000},
       [prefix+'manual:assign:3']:{done:false,t:now-100},
       [prefix+'settings']:{course:'all'},
+      [prefix+'presentation']:{schema:1,position:'top'},
       ['ugr2:'+location.origin+':99:settings']:{course:'other'}
     }));
   });
