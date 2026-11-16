@@ -152,13 +152,23 @@
       ? {retryAfterMs:Math.max(0,Math.ceil(delay))}
       : {retryAfterBlocked:true};
   }
+  const recoveryHttp=[429,502,503,504];
   function recoveryWait(error) {
     if(['TIMEOUT','NETWORK'].includes(error.code))return 0;
     if(error.code!=='HTTP')return null;
     const {http,retryAfterMs,retryAfterBlocked}=error.details??{};
-    if(![429,502,503,504].includes(http)||retryAfterBlocked)return null;
+    if(!recoveryHttp.includes(http)||retryAfterBlocked)return null;
     if(retryAfterMs===undefined)return http===429?null:0;
     return retryAfterMs<=CONFIG.maxServerWait?retryAfterMs:null;
+  }
+  function failureVisibility(failure, stage, phase, scheduled) {
+    if(!failure||failure.code==='CANCELLED')return 'none';
+    if(phase==='checking'||phase==='queued'||phase==='recovering')return phase;
+    if(failure.recoveryFailed)return 'exhausted';
+    const transient=['TIMEOUT','NETWORK'].includes(failure.code)||
+      failure.code==='HTTP'&&recoveryHttp.includes(failure.details?.http)||
+      stage==='session'&&failure.code==='REDIRECT';
+    return transient&&scheduled?'deferred':'action_required';
   }
   // Allowlist only: never copy exception messages, stack traces, URLs or HTML.
   function safeDetails(value={}) {
@@ -861,7 +871,7 @@
     return [...result.values()].sort((a,b)=>ascending ? a.due-b.due : b.due-a.due);
   }
 
-  globalThis.UGCore = { CONFIG, mods, item, empty, clean, needsCheck, selectorUpgrade, verificationDecision, allowsRequest, closeEvidence, identity, ERROR_LABELS, problem, retryAfter, recoveryWait, safeDetails, failureRecord, cleanFailures, checkIdentity, recognizeFeedback, recognize, gradeText, readState, mergeMonth, completion, categories, titleLimit, presentation, matchesCategory, presentationList };
+  globalThis.UGCore = { CONFIG, mods, item, empty, clean, needsCheck, selectorUpgrade, verificationDecision, allowsRequest, closeEvidence, identity, ERROR_LABELS, problem, retryAfter, recoveryWait, failureVisibility, safeDetails, failureRecord, cleanFailures, checkIdentity, recognizeFeedback, recognize, gradeText, readState, mergeMonth, completion, categories, titleLimit, presentation, matchesCategory, presentationList };
   Object.assign(globalThis.UGCore,{datePresets,dateRange,dateBounds,filterPresentationRows});
   if(typeof module !== 'undefined') module.exports = globalThis.UGCore;
 })();

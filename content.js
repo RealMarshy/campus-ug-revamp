@@ -12,6 +12,7 @@
   const presentationKey=prefix+'presentation';
   let stamps={}, calendarTimes={}, calendarRefreshes={}, exhaustiveAt=0, refreshSessionAt=0, history={schema:1,changes:[]};
   let failures={}, incidents=[], lastRun={};
+  const failurePhases=new Map();
   const TABS = C.categories.map((id,index)=>({id,label:['Próximas','Atrasadas','Entregadas','Pendientes','Sin verificar'][index]}));
   const TYPES = Object.entries({assign:'Tareas',quiz:'Cuestionarios',forum:'Foros',feedback:'Encuestas'});
   const categoryPreference=()=>preferences.mode==='custom'?'categories':'visibleTabs';
@@ -252,6 +253,23 @@
     });
   }
   const serverWaiting=f=>f?.code==='HTTP'&&Number.isFinite(f.details?.retryAfterMs)&&Date.now()<f.t+f.details.retryAfterMs;
+  const failureStage=id=>id==='session'?'session':id.startsWith('calendar:')?'calendar':'activity';
+  const actionable=phase=>phase==='exhausted'||phase==='action_required';
+
+  function failureStates(){
+    const automatic=!stopped&&periodicInterval()>0;
+    const ids=Object.keys(failures).filter(id=>!id.startsWith('forum:'));
+    if(!ids.length)return {};
+    const planned=automatic?new Set(['session',...months().filter(m=>!m.historical).map(m=>'calendar:'+m.key),
+      ...candidates('periodic').map(({it})=>key(it)).filter(id=>state.store.manual[id]===undefined)]):new Set();
+    return Object.fromEntries(ids.map(id=>[id,C.failureVisibility(failures[id],failureStage(id),failurePhases.get(id),planned.has(id))]));
+  }
+
+  function markChecking(id,phase='checking'){
+    if(!failures[id])return;
+    failurePhases.set(id,phase);
+    schedule();
+  }
 
   async function synchronize(mode,target,requestedAt,trigger){
     const force=mode==='all', refresh=mode==='refresh', periodic=mode==='periodic';
@@ -311,8 +329,11 @@
         sessionProbe='requested';
         refreshRedirect=refresh&&failure?.code==='REDIRECT';
         // Confirms the current cookie account before storing any remote data.
-        const page=new DOMParser().parseFromString(await request(`${ORIGIN}/my/`),'text/html');
-        C.checkIdentity(page,session.userId);resolveFailure(changes,'session');
+        markChecking('session');
+        try {
+          const page=new DOMParser().parseFromString(await request(`${ORIGIN}/my/`),'text/html');
+          C.checkIdentity(page,session.userId);resolveFailure(changes,'session');
+        }finally{failurePhases.delete('session');}
         const known=new Set(state.items.map(key));
         if(!periodic){state.progress='Consultando el calendario de Moodle…';schedule();}
         const windowMonths=months();
@@ -329,6 +350,7 @@
             return;
           }
           calendarRequested++;
+          markChecking(fk);
           try{
             const fresh=await fetchMonth(m);assertSession();
             const previousItems=new Map((old?.items||[]).map(it=>[it.id,it]));
@@ -351,6 +373,7 @@
             resolveFailure(changes,fk);collect();schedule();
           }
           catch(e){if(!cancelled&&!stopped){calendarErrors++;recordFailure(changes,fk,e,'calendar');}}
+          finally{failurePhases.delete(fk);}
         },proceed,checkPriority);
         for(const it of state.items)if(!known.has(key(it)))newActivities++;
       }
@@ -383,6 +406,7 @@
         }else{
           retriesAttempted++;
         }
+        markChecking(id,round==='recovery'?'recovering':'checking');
         try{
           let status=await checkDone(it,timeoutMs,closeAt,mode==='one');
           assertSession();
@@ -430,6 +454,9 @@
           if(delay!==null&&!stopped)retryQueue.set(id,{candidate,readyAt:performance.now()+delay});
           stamps[id]={...(stamp??{t:0,stateAt:0,closedAt:null}),observedAt:performance.timeOrigin+performance.now(),...(it.mod==='quiz'?{quizSelectorRevision:1}:{})};
           saveStamps=true;
+        }finally{
+          if(failures[id]&&round==='initial'&&retryQueue.has(id))failurePhases.set(id,'queued');
+          else failurePhases.delete(id);
         }
         if(!stopped&&!cancelled&&(!periodic||round==='recovery')){
           state.progress=round==='initial'?`Comprobando actividades… ${checked}/${detected}`:
@@ -460,23 +487,26 @@
         }finally{recoveryDurationMs=Math.round(performance.now()-recoveryStart);}
       }
       assertSession();
+      failurePhases.clear();
+      const states=failureStates();
+      const issues=changes.some(change=>change.type==='failure'&&actionable(states[change.key]));
+      const pending=errors||calendarErrors?'Hay comprobaciones pendientes.':'';
       if(cancelled)finalMessage='Reverificación cancelada.';
       else if(mode==='one'){
-        const result=shared?'Se usó el resultado de la comprobación en curso.':errors?'No se pudo comprobar la actividad. Puedes volver a intentarlo.':!checked?'Actividad no disponible.':changed?'Se actualizó la información de la actividad.':'Actividad verificada. Sin cambios.';
-        finalMessage=(errors?'Actualización finalizada con problemas. ':'Actualización finalizada. ')+result;
+        const result=shared?'Se usó el resultado de la comprobación en curso.':errors?(issues?'No se pudo comprobar la actividad.':pending):!checked?'Actividad no disponible.':changed?'Se actualizó la información de la actividad.':'Actividad verificada. Sin cambios.';
+        finalMessage=(issues?'Actualización finalizada con problemas. ':'Actualización finalizada. ')+result;
       }else if(force){
-        finalMessage=joinStatus(errors||calendarErrors?'Actualización finalizada con problemas.':'Actualización finalizada.',
+        finalMessage=joinStatus(issues?'Actualización finalizada con problemas.':'Actualización finalizada.',
           `${checked} actividades comprobadas`,recoveredAfterRetry?`${recoveredAfterRetry} comprobadas al volver a intentar`:'',
-          errors?`${errors} sin confirmar en esta revisión`:'',calendarErrors?'Problemas al consultar el calendario':'');
+          pending);
         exhaustiveAt=performance.timeOrigin+performance.now();
         saveStamps=true;
       }else{
-        const issues=errors||calendarErrors;
         const heading=periodic?(proceed()?'Actualización periódica finalizada':'Actualización periódica interrumpida'):'Actualización finalizada';
         finalMessage=`${heading}${issues?' con problemas':''}. `+joinStatus(
           `${calendarRequested} meses consultados`,`${calendarReused} meses con datos guardados`,
-          `${newActivities} actividades nuevas`,`${checked} actividades comprobadas`,errors?`${errors} sin confirmar en esta revisión`:'',
-          calendarErrors?'Problemas al consultar el calendario':'',calendarWaiting||skipped?'Hay comprobaciones pendientes':'');
+          `${newActivities} actividades nuevas`,`${checked} actividades comprobadas`,
+          pending||(calendarWaiting||skipped?'Hay comprobaciones pendientes':''));
       }
     }catch(e){
       if(cancelled)finalMessage='Reverificación cancelada.';
@@ -484,10 +514,11 @@
         if(refresh&&sessionProbe==='requested'&&e.code==='REDIRECT')refreshRedirect=true;
         recordFailure(changes,'session',e,'session');
         if(periodic&&e.code==='IDENTITY_CONFLICT')stop();
-        fail(connectionMessages[e.code]||'No se pudo actualizar. Puedes volver a intentarlo.');
+        if(!stopped&&!actionable(failureStates().session))finalMessage='Actualización en espera. La sesión se volverá a comprobar.';
       }
     }
     finally{
+      failurePhases.clear();
       if(!periodic)runningMode=undefined;
       if(!stopped){
         if(force){state.progress='Terminando la actualización…';render();}
@@ -723,7 +754,7 @@
   const verificationDate=time=>time>0?`Verificado el ${verificationDay.format(time)} a las ${verificationTime.format(time)}`:'';
   const joinStatus=(...parts)=>parts.filter(Boolean).join(' · ');
 
-  function itemHtml(it) {
+  function itemHtml(it,recovery) {
     const classification=bucket(it);
     const done=classification==='entregadas';
     const unknown=classification==='desconocidas';
@@ -741,7 +772,7 @@
         <span class="ugr-badge ugr-${it.mod}">${MODS[it.mod]}</span>
         <div class="ugr-main">
           <a href="${esc(it.url)}">${esc(it.name)}</a>
-          <div class="ugr-course">${esc(it.course)}</div><div class="ugr-source">${esc(sourceLabel(it))}</div>
+          <div class="ugr-course">${esc(it.course)}</div><div class="ugr-source">${esc(sourceLabel(it,recovery))}</div>
         </div>
         <div class="ugr-when">
           <div>${esc(fmtDate(it.due))}</div>
@@ -782,9 +813,10 @@
     return auto.done&&it.mod!=='assign'?auto.t:stamp?.stateAt===auto.t?stamp.t:auto.t;
   }
 
-  function sourceLabel(it){
+  function sourceLabel(it,recovery){
     const id=key(it), status=completion(it), manual=state.store.manual[id], auto=state.store.auto[id], stamp=stamps[id];
     const failure=failures[id];
+    const failureMessage=actionable(recovery)?retryActivity:'Comprobación pendiente';
     const discordance=manual==='no'?'Tu declaración indica lo contrario':manual===false?'Hay una marca anterior diferente':'';
     const official=auto?.source==='moodle';
     const verified=preferences.position==='hidden'?'':verificationDate(verifiedAt(it,auto,stamp));
@@ -802,10 +834,10 @@
         it.mod==='forum'?'Puedes declarar si participaste':'Hay una marca anterior');
     if(status.source==='manual'){
       return joinStatus(status.done?'Declarada como realizada':'Declarada como no realizada','Declaración del estudiante',
-        confirmed(it)&&manual==='no'?'Hay una finalización anterior registrada':failure?retryActivity:'');
+        confirmed(it)&&manual==='no'?'Hay una finalización anterior registrada':failure?failureMessage:'');
     }
     if(it.mod==='forum')return joinStatus(unconfirmedParticipation,'Puedes declarar si participaste');
-    if(failure)return joinStatus('Sin verificar',retryActivity);
+    if(failure)return joinStatus('Sin verificar',failureMessage);
     if(it.mod==='feedback'){
       if(it.conflict)return 'Sin verificar';
       if(feedbackClosed(it))return joinStatus(unconfirmedParticipation,'Encuesta cerrada',official&&auto.feedbackState==='closed'?verified:'');
@@ -883,7 +915,7 @@
       </div>
       <div class="ugr-preference-fields">
         <label>Ubicación del estado <select data-position><option value="top">Arriba</option><option value="bottom">Abajo</option><option value="hidden">Oculto</option></select></label>
-        <div class="ugr-status-visibility"><span>Visibilidad</span><button type="button" data-toggle-status aria-controls="ugr-status" aria-expanded="true">Ocultar estado</button><button type="button" data-open-diagnostic aria-controls="ugr-diagnostic" hidden>Ver diagnóstico</button></div>
+        <div class="ugr-status-visibility"><span>Visibilidad</span><button type="button" data-toggle-status aria-controls="ugr-status" aria-expanded="true">Ocultar estado</button><button type="button" data-open-diagnostic aria-controls="ugr-diagnostic">Ver diagnóstico</button></div>
         <label>Tamaño del panel <select data-size><option value="compact">Compacto</option><option value="normal">Normal</option><option value="wide">Amplio</option></select></label>
         <label>Actividades visibles <select data-limit><option value="5">5</option><option value="10">10</option><option value="30">30</option><option value="">Sin límite</option></select></label>
         <label>Vista de categorías <select data-mode><option value="tabs">Pestañas rápidas</option><option value="custom">Lista simple (Antiguo)</option></select></label>
@@ -908,12 +940,13 @@
       <div data-state-summary class="ugr-note"></div>
       <div class="ugr-error" role="alert"></div>
       <details id="ugr-diagnostic" class="ugr-diagnostic"><summary>Diagnóstico de verificaciones</summary><div data-diagnostic-summary></div><pre id="ugr-diagnostics" tabindex="0"></pre>
+        <button type="button" data-copy-diagnostic>Copiar diagnóstico</button><span data-copy-result aria-live="polite"></span>
         <details data-diagnostic-dates><summary>Fechas de comprobación</summary><pre data-dates-list tabindex="0"></pre></details>
       </details>
     </div>
     <div class="ugr-warning" hidden>
       <span data-minimal-warning role="alert"></span>
-      <button type="button" data-show-diagnostic>Ver diagnóstico</button>
+      <button type="button" data-show-diagnostic aria-controls="ugr-diagnostic">Consultar error</button>
     </div>
     <div data-list-body>
       <ul class="ugr-list" tabindex="0" aria-label="Actividades filtradas"></ul>
@@ -1164,23 +1197,25 @@
     ui('[data-position]').value=preferences.position;
     statusBlock.hidden=!show;
     const diagnostic=ui('#ugr-diagnostic');
-    ui('[data-open-diagnostic]').hidden=show;
     if(show&&diagnostic.parentElement!==statusBlock)statusBlock.append(diagnostic);
     if(preferences.position==='bottom'){
       if(listBody.nextElementSibling!==statusBlock)listBody.after(statusBlock);
     }else if(warning.previousElementSibling!==statusBlock)warning.before(statusBlock);
     statusButton.textContent=show?'Ocultar estado':'Mostrar estado';
     statusButton.setAttribute('aria-expanded',String(show));
-    const count=records.filter(record=>record.recoveryFailed).length;
+    const final=records.filter(record=>actionable(record.recovery));
+    const sessionFailure=final.find(record=>record.stage==='session'||['SESSION_EXPIRED','ACCOUNT_CHANGED','IDENTITY_MISSING','IDENTITY_CONFLICT'].includes(record.code));
+    const count=final.filter(record=>record.stage==='activity'&&record!==sessionFailure).length;
     const persistentNotice=count===1?'1 actividad sigue sin comprobarse.':count>1?`${count} actividades siguen sin comprobarse.`:'';
-    const identityNotice=records.some(record=>['IDENTITY_MISSING','IDENTITY_CONFLICT'].includes(record.code))
-      ? 'No se pudo confirmar tu cuenta en una consulta. Recarga Moodle si el problema continúa.':'';
-    const notice=[state.error||identityNotice,persistentNotice].filter(Boolean).join(' ');
+    const sessionNotice=sessionFailure&&(connectionMessages[sessionFailure.code]||'No se pudo comprobar la sesión. Vuelve al Área personal y pulsa Actualizar.');
+    const calendarNotice=final.some(record=>record.stage==='calendar'&&record!==sessionFailure)?'No se pudo comprobar el calendario de Moodle.':'';
+    const notice=[state.error||sessionNotice,persistentNotice,calendarNotice].filter(Boolean).join(' ');
     const statusError=ui('.ugr-error');
     if(statusError.textContent!==notice)statusError.textContent=notice;
-    warning.hidden=show||(!notice&&!records.length);
-    const message=warning.hidden?'':notice;
-    if(ui('[data-minimal-warning]').textContent!==message)ui('[data-minimal-warning]').textContent=message;
+    warning.hidden=!notice;
+    const minimal=ui('[data-minimal-warning]');
+    minimal.hidden=show;
+    if(minimal.textContent!==notice)minimal.textContent=notice;
   }
 
   function displayDiagnosticDates(){
@@ -1278,10 +1313,11 @@
     for(const {b,awaitingConfirmation} of filteredRows)for(const t of TABS)
       if(C.matchesCategory(t.id,b,awaitingConfirmation))countsByTab[t.id]++;
     for(const t of TABS){const b=ui(`[data-tab="${t.id}"]`);b.hidden=!preferences.visibleTabs.includes(t.id);b.classList.toggle('active',!b.hidden&&t.id===state.tab);b.setAttribute('aria-selected',String(!b.hidden&&t.id===state.tab));b.querySelector('span').textContent=countsByTab[t.id];}
+    const recovery=failureStates();
     const scrollTop=ul.scrollTop, wanted=new Set(list.map(key));
     for(const [id,n] of nodes) if(!wanted.has(id)){n.remove();nodes.delete(id);}
     list.forEach((it,index)=>{
-      const id=key(it), html=itemHtml(it);let n=nodes.get(id);
+      const id=key(it), html=itemHtml(it,recovery[id]);let n=nodes.get(id);
       if(!n || n.dataset.signature!==html){const template=document.createElement('template');template.innerHTML=html;const fresh=template.content.firstElementChild;fresh.dataset.id=id;fresh.dataset.signature=html;if(n)n.replaceWith(fresh);nodes.set(id,fresh);n=fresh;}
       if(ul.children[index]!==n) ul.insertBefore(n,ul.children[index]||null);
     });
@@ -1302,12 +1338,13 @@
     panel.dataset.metrics=JSON.stringify(metrics);
     const records=[], historicalForumFailures=[];
     for(const [k,f] of Object.entries(failures)){
-      const record={stage:k.startsWith('calendar:')?'calendar':k==='session'?'session':'activity',module:k.split(':')[0],code:f.code,attempts:f.attempts,details:f.details};
+      const record={stage:failureStage(k),module:k.split(':')[0],code:f.code,attempts:f.attempts,details:f.details};
       if(record.module==='forum')historicalForumFailures.push(record);
-      else records.push({...record,...(record.stage==='activity'?{recoveryFailed:f.recoveryFailed===true}:{}),
+      else records.push({...record,recovery:recovery[k],...(record.stage==='activity'?{recoveryFailed:f.recoveryFailed===true}:{}),
         ...(state.store.manual[k]!==undefined?{manualOverride:true}:{}),retryInMinutes:Math.max(0,Math.ceil((f.retryAt-Date.now())/60000))});
     }
     const effective={manualPending:0,unknown:0,persistentActivityFailures:0,completed:{automatic:0,manual:0,historical:0,historicalUnknown:0,staleAutomatic:0,gradedWithoutSubmission:0}};
+    let attention=0;
     for(const {it,b} of rows){
       const status=completion(it);
       if(it.mod==='forum'&&!status.done&&state.store.manual[key(it)]!=='no')effective.manualPending++;
@@ -1315,12 +1352,13 @@
         effective.unknown++;
       }
       if(it.mod!=='forum'&&failures[key(it)]?.recoveryFailed)effective.persistentActivityFailures++;
+      if(actionable(recovery[key(it)]))attention++;
       if(b==='entregadas'){
         const category=evaluationGrade(it)?'gradedWithoutSubmission':staleDelivered(it)?'staleAutomatic':status.source==='historical_unknown'?'historicalUnknown':status.source==='moodle'||status.source==='heuristic'?'automatic':status.source;
         effective.completed[category]++;
       }
     }
-    panel.querySelector('[data-state-summary]').textContent=`Filtro actual · ${effective.unknown} sin verificar · ${effective.completed.staleAutomatic} por volver a comprobar · ${effective.persistentActivityFailures} con problemas al comprobar · ${effective.manualPending} foros por confirmar.`;
+    panel.querySelector('[data-state-summary]').textContent=`Filtro actual · ${effective.unknown} sin verificar · ${effective.completed.staleAutomatic} por volver a comprobar · ${attention} requieren atención · ${effective.manualPending} foros por confirmar.`;
     const counts={};for(const f of records)counts[f.code]=(counts[f.code]||0)+1;
     const activeSummary=records.length ? Object.entries(counts).map(([code,n])=>`${C.ERROR_LABELS[code]}: ${n}`).join(' · ') : 'Sin fallos activos.';
     displayStatus(records);
@@ -1406,6 +1444,24 @@
       }
       diagnostic.open=true;
       diagnostic.querySelector('summary').focus();
+      return;
+    }
+    if(e.target.closest('[data-copy-diagnostic]')){
+      const report=ui('#ugr-diagnostics'), result=ui('[data-copy-result]');
+      (async()=>{
+        try{
+          await navigator.clipboard.writeText(report.textContent);
+          result.textContent=' Diagnóstico copiado.';
+        }catch{
+          const range=document.createRange();
+          range.selectNodeContents(report);
+          const selection=window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          report.focus();
+          result.textContent=' Usa el comando Copiar de tu navegador.';
+        }
+      })();
       return;
     }
     if(e.target.closest('[data-reset-title]')){updatePresentation({title:C.presentation().title});return;}

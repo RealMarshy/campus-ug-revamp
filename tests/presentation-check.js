@@ -249,8 +249,9 @@ async page=>{
   check(await status.evaluate(el=>el.previousElementSibling.matches('[data-list-body]')),'Estado abajo');
   await setting('position').selectOption('hidden');
   check(await status.isHidden() && await setting('toggle-status').textContent()==='Mostrar estado','Estado oculto');
-  check(await setting('minimal-warning').isHidden() && await setting('show-diagnostic').isVisible(),'Fallo anterior sin evidencia de reintento mantiene un acceso neutral al diagnóstico');
-  await setting('show-diagnostic').click();
+  check(await setting('minimal-warning').isVisible() && await setting('show-diagnostic').isVisible(),
+    'Un fallo estructural sin recuperación segura tiene aviso');
+  await setting('open-diagnostic').click();
   check(await status.isHidden() && await setting('position').inputValue()==='hidden' &&
     await panel.locator('.ugr-diagnostic[open]').isVisible(),'Acceso directo al diagnóstico conserva Oculto');
   await setting('toggle-status').press('Enter');

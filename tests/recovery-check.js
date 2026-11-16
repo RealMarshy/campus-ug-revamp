@@ -127,12 +127,16 @@ async (page, baseline=false) => {
   const timeout=retryTimeout.activeFailures.find(f=>f.code==='TIMEOUT');
   check(retryTimeout.lastRun.persistentErrors===1&&timeout?.details.timeoutMs===25000&&timeout.details.phase==='headers','El plazo ampliado de recuperación también vence');
 
+  const exhaustedBeforeCancel=retryTimeout.activeFailures.filter(f=>f.recovery==='exhausted').length;
   mode='cancel';calls={};
   await clickAll();
   await page.waitForFunction(()=>document.querySelector('.ugr-note').textContent.includes('Recuperando'));
   check(!(await page.locator('#ugr-panel [role="status"]').textContent()).includes('Actualización finalizada'),'Recuperación sin final prematuro');
   await page.getByRole('button',{name:'Cancelar verificación'}).click();await waitFinal(page);
   check((await report()).lastRun.cancelled&&(await report()).lastRun.persistentErrors===0&&delayIds.filter(id=>calls[id]>1).length<=1,'Cancelar detiene la cola sin registrar otro fallo de recuperación');
+  const afterCancel=(await report()).activeFailures;
+  check(afterCancel.some(f=>f.recovery==='deferred')&&afterCancel.filter(f=>f.recovery==='exhausted').length===exhaustedBeforeCancel,
+    'Cancelar conserva los pendientes sin sumar agotamientos');
   const rate=await execute('rateLimit');
   check(rate.lastRun.retriesAttempted===1&&rate.lastRun.persistentErrors===0&&rate.lastRun.activityErrors===2&&calls['1']===2&&calls['2']===1&&calls['3']===1,'429 solo se reintenta con espera corta indicada');
   check(rateWait>=1000,'Se espera el Retry-After indicado');

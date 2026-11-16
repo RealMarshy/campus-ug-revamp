@@ -52,7 +52,7 @@ Si el panel indica que no pudo comprobar tu sesión, vuelve al Área personal y 
 
 En **Personalizar** puedes configurar la actualización automática cada 10, 15 o 30 minutos, o desactivarla. Allí también se ajustan la apariencia, el tamaño y la presentación de las categorías. **Diagnóstico de verificaciones** muestra la versión, el alcance de la última ejecución y los motivos de los fallos.
 
-La advertencia roja de actividades indica que un reintento automático terminó con un fallo. Los fallos iniciales o aplazados siguen disponibles en Diagnóstico. Si la sesión caduca o la identidad no puede confirmarse, aparece un aviso específico.
+**Consultar error** aparece si un fallo sigue activo después de agotar su recuperación, si no hay recuperación automática aplicable o si necesitas intervenir, como cuando caduca la sesión. Las comprobaciones pendientes se pueden consultar en **Personalizar → Ver diagnóstico**. Allí puedes copiar el informe técnico sanitizado.
 
 ## Límites
 

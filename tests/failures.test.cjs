@@ -36,3 +36,25 @@ test('Solo los fallos de actividad con evidencia explícita conservan la marca d
  assert.equal(base['calendar:2026-11'].recoveryFailed,undefined);
  assert.equal(C.cleanFailures({'quiz:2':{...failed,recoveryFailed:'true'}},200)['quiz:2'].recoveryFailed,undefined);
 });
+test('la visibilidad se determina por la fase, la elegibilidad y el resultado explícito',()=>{
+ const issue=(code,details,extra)=>({...C.failureRecord(C.problem(code,details),null,100),...extra});
+ const view=(f,options={})=>C.failureVisibility(f,options.stage??'activity',options.phase,options.scheduled??true);
+ assert.equal(view(null),'none');
+ assert.equal(view(issue('CANCELLED')),'none');
+ for(const f of [issue('TIMEOUT',{}, {attempts:6}),issue('NETWORK'),issue('HTTP',{http:503}),
+   issue('HTTP',{http:429,retryAfterMs:10000}),issue('HTTP',{http:429,retryAfterBlocked:true})]){
+  assert.equal(view(f,{phase:'queued'}),'queued');
+  assert.equal(view(f,{phase:'recovering'}),'recovering');
+  assert.equal(view(f),'deferred');
+  assert.equal(view(f,{scheduled:false}),'action_required');
+ }
+ const exhausted=issue('TIMEOUT',{}, {attempts:1,recoveryFailed:true});
+ assert.equal(view(exhausted),'exhausted');
+ assert.equal(view(exhausted,{phase:'checking'}),'checking');
+ for(const f of [issue('HTTP',{http:403}),issue('SESSION_EXPIRED'),issue('ACCOUNT_CHANGED'),issue('SELECTOR_MISSING')])
+  assert.equal(view(f),'action_required');
+ const redirect=issue('REDIRECT');
+ assert.equal(view(redirect),'action_required');
+ assert.equal(view(redirect,{stage:'session'}),'deferred');
+ assert.equal(view(redirect,{stage:'session',scheduled:false}),'action_required');
+});

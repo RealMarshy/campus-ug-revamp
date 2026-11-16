@@ -1,5 +1,27 @@
 # Verificaciones de Campus UG Revamp
 
+## Avisos de fallos definitivos · 2.5.1
+
+| Estado del fallo | Aviso «Consultar error» |
+| --- | --- |
+| Fallo resuelto o consulta cancelada sin un fallo activo | Oculto. Diagnóstico conserva las incidencias registradas. |
+| Comprobación de nuevo en curso, en cola o recuperación activa | Oculto para ese fallo mientras se espera el resultado. |
+| TIMEOUT, NETWORK o HTTP 429, 502, 503 o 504 aplazado con otra comprobación automática aplicable | Oculto. Se conserva la espera y la elegibilidad existentes. |
+| Reintento automático ejecutado que también falló | Visible mientras siga activo, salvo que se esté comprobando nuevamente. |
+| Fallo sin recuperación segura o sin una futura comprobación automática aplicable | Visible. Incluye fallos de estructura, identidad o permisos, y aplazados cuya actividad queda fuera del alcance programado o cuya revisión automática está desactivada. |
+| Redirección de la comprobación de sesión | Se aplaza si queda una comprobación automática prevista. Cuando requiere actuación, se indica volver al Área personal y usar Actualizar. |
+| Sesión caducada | Visible de inmediato con la indicación de iniciar sesión. |
+
+El motivo del fallo, las fases de comprobación y los intentos ejecutados se obtienen de la política existente. La ausencia de la marca `recoveryFailed` no demuestra éxito. Tampoco se usa `attempts` para deducir el agotamiento. Una cancelación o suspensión descarta las fases de la ejecución local. Los fallos registrados se vuelven a clasificar según su alcance y la próxima comprobación que permitan las preferencias. El resultado exitoso elimina el fallo activo. La copia de Diagnóstico incluye solo el JSON sanitizado, sin las fechas por actividad que se muestran localmente.
+
+La verificación individual sigue realizando una sola lectura. Las recuperaciones de primera carga, Actualizar, Reverificar todo, la ejecución periódica y el regreso a la pestaña conservan las reglas de solicitudes, espera y coordinación. Personalizar ofrece Diagnóstico en las tres posiciones del estado.
+
+Se cargó el ZIP Manifest V3 extraído en Chrome con un perfil temporal. La reverificación individual produjo un TIMEOUT de cabeceras al cabo del límite existente de 15 segundos. El fallo siguió aplazado al reiniciar Chrome y el reinicio no leyó la tarea. Un HTTP 403 activó el botón y una lectura válida posterior lo retiró con un GET por reverificación. El ZIP contiene ocho archivos públicos y pesa **78.086 bytes**. SHA-256 `55B0BB7A61C3A05FF6F146015295901286BD25287C4C5A826A31233E81C8C738`.
+
+En el escenario de 42 actividades consultadas se mantuvieron 49 solicitudes con Moodle disponible y 50 cuando un TIMEOUT requirió un reintento. Cambiar de posición, abrir Diagnóstico y copiar el informe generaron cero solicitudes. Las pruebas en dos pestañas comprobaron que la segunda conserva el aplazamiento y que ambas comparten las comprobaciones coordinadas.
+
+La regresión final pasó **44 pruebas Node y 933 comprobaciones en 26 suites de Chrome**, sin fallos ni omisiones. Incluyó el TIMEOUT que se recupera, el que queda aplazado y el que agota el presupuesto, las respuestas HTTP transitorias, la red, REDIRECT, la autenticación, los fallos estructurales, la cancelación, el reinicio, el aviso simultáneo de varios fallos y la desaparición del botón tras una lectura válida.
+
 ## Refinamiento de edición y fechas · 2.5.1
 
 | Evidencia de la tarea entregada | Texto adicional |

@@ -61,7 +61,8 @@ async page=>{
   await page.getByLabel('Filtrar por curso').selectOption('all');
   const warm=await diag();
   check(warm.lastRun.activityErrors===0&&warm.lastRun.skipped===1&&warm.effective.unknown===1,'Backoff deja visible el fallo persistente');
-  check((await page.locator('.ugr-error').textContent())==='','Sin falsa alerta de error nuevo');
+  check(warm.activeFailures[0].recovery==='action_required'&&await page.locator('[data-show-diagnostic]').isVisible(),
+    'El fallo estructural del quiz sigue visible sin convertir el historial de foros en un aviso');
   await page.evaluate(()=>{window.confirm=()=>true;});await page.getByRole('button',{name:'Reverificar todo',exact:true}).click();await settled();
   check((await diag()).activeFailures[0].attempts===2,'Actualizar reintenta el cuestionario sin confundirlo con los foros');
   const saved=await page.evaluate(()=>JSON.parse(localStorage.fixture));

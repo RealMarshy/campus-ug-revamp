@@ -86,6 +86,7 @@ async (page, baseline=false)=>{
     check(await sessionCode()===undefined,'2.5.0 se recupera con Reverificar todo');
   }else{
     check(probes===beforeRecover+1&&await sessionCode()===undefined,'Actualizar vuelve a confirmar la sesión y limpia REDIRECT');
+    check(await page.locator('[data-show-diagnostic]').isHidden(),'La recuperación de sesión retira el aviso');
     check(benchmark.manualRecovery.calendar===3&&(await diag()).lastRun.mode==='refresh','La recuperación actualiza los tres meses recientes');
     check(benchmark.manualRecovery.activities===1&&(await diag()).lastRun.newActivities===1,'Se verifica la actividad nueva sin revisar las demás');
   }
@@ -143,6 +144,9 @@ async (page, baseline=false)=>{
   await page.reload();await idle();
   mode='redirect';await button().click();await idle();
   const beforePeriodic=probes;
+  check(await page.locator('[data-show-diagnostic]').isHidden()&&
+    (await diag()).activeFailures.some(f=>f.code==='REDIRECT'&&f.recovery==='deferred'),
+    'Redirección con una comprobación periódica prevista queda solo en Diagnóstico');
   await page.evaluate(()=>{
     const now=Date.now;
     Date.now=()=>now()+11*60_000;

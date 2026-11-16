@@ -326,9 +326,9 @@ async (page,baseline=false)=>{
   await reread(3);
   evaluationOffline=true;
   await reread(3);await tab('Sin verificar');
-  check(await label()==='Sin verificar · No se pudo comprobar. Puedes volver a intentarlo'&&
-    (await diag()).activeFailures.some(f=>f.code==='NETWORK')&&
-    (await page.locator('.ugr-note[role="status"]').textContent()).startsWith('Actualización finalizada con problemas.'),
+  check(await label()==='Sin verificar · Comprobación pendiente'&&
+    (await diag()).activeFailures.some(f=>f.code==='NETWORK'&&f.recovery==='deferred')&&
+    (await page.locator('.ugr-note[role="status"]').textContent()).includes('Hay comprobaciones pendientes.'),
     'Un error de lectura conserva el tratamiento conservador');
   evaluationOffline=false;
   assignBody=groupBlocked+addSubmission;

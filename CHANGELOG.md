@@ -8,6 +8,7 @@ Este historial resume las versiones de Revamp, derivado de [Panel de Tareas UG](
 - Unifica las etiquetas de tareas sin entrega y distingue las entregas editables de las explícitamente bloqueadas. La señal de edición se comprueba al leer la vista principal de la tarea.
 - Presenta de forma coherente los estados de tareas, cuestionarios, encuestas y foros. Distingue las declaraciones del estudiante de la evidencia de Moodle y muestra la fecha de comprobación cuando corresponde. Simplifica los avisos de actualización y conserva los detalles técnicos en Diagnóstico.
 - Distingue una vista completa de tarea que no muestra la opción de editar y respeta la ubicación del estado al mostrar las fechas de comprobación. Las fechas se pueden consultar en Diagnóstico con el estado oculto.
+- Reserva «Consultar error» para fallos activos que agotaron su recuperación o requieren intervención. Las incidencias pendientes y el informe sanitizado siguen accesibles desde Personalizar.
 
 ## 2.5.0 — The Daniel Update
 

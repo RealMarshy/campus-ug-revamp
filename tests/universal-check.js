@@ -76,12 +76,15 @@ async (page, baseline=false)=>{
   const retryStarted=new Promise(resolve=>{pendingTimeout=resolve;});
   await page.reload();
   await retryStarted;
-  await page.waitForFunction(()=>JSON.parse(document.querySelector('#ugr-diagnostics').textContent).activeFailures.length===1);
-  check(await warning.isHidden()&&(await diag()).activeFailures[0].recoveryFailed===false,'Primer fallo visible solo en diagnóstico durante la recuperación');
+  await page.waitForFunction(()=>JSON.parse(document.querySelector('#ugr-diagnostics').textContent).activeFailures[0]?.recovery==='recovering');
+  const errorButton=page.locator('[data-show-diagnostic]');
+  check(await warning.isHidden()&&await errorButton.isHidden()&&(await diag()).activeFailures[0].recovery==='recovering',
+    'Primer fallo visible solo en diagnóstico durante la recuperación');
   held.shift()();
   await final();
   pendingTimeout=undefined;
-  check(await warning.isHidden()&&(await diag()).activeFailures.length===0&&calls.get(1)===2,'Recuperación exitosa sin advertencia');
+  check(await warning.isHidden()&&await errorButton.isHidden()&&(await diag()).activeFailures.length===0&&calls.get(1)===2,
+    'Recuperación exitosa sin advertencia');
 
   const three=await reset({1:['timeout'],2:['timeout'],3:['timeout']});
   check(three.run.timeoutPhase.headers===3&&three.run.recoveredAfterRetry===3&&three.activity===45,'Tres timeouts simultáneos se recuperan de forma selectiva');
@@ -90,12 +93,13 @@ async (page, baseline=false)=>{
   check((await warning.textContent())==='1 actividad sigue sin comprobarse.'&&partial.d.activeFailures[0].recoveryFailed,'Contador singular aunque cambie el código de error');
   const failed=await reset({1:['network','network'],2:[503,503],3:['unknown']},4);
   check(failed.run.retriesAttempted===2&&failed.run.persistentErrors===2&&failed.d.activeFailures.length===3&&
-    (await warning.textContent())==='2 actividades siguen sin comprobarse.','El contador solo incluye recuperaciones fallidas');
+    (await warning.textContent())==='3 actividades siguen sin comprobarse.'&&await errorButton.isVisible(),
+    'El contador incluye recuperaciones agotadas y fallos sin recuperación segura');
   const beforeBackoff=requests;
   await page.locator('[data-refresh]').click();await final();
   check((await diag()).lastRun.skipped===3&&requests-beforeBackoff===4&&calls.get(1)===2,'Actualizar respeta backoff y reutiliza entregas');
   await page.reload();await final();
-  check((await warning.textContent())==='2 actividades siguen sin comprobarse.','La advertencia persiste tras recargar con backoff');
+  check((await warning.textContent())==='3 actividades siguen sin comprobarse.','La advertencia persiste tras recargar con backoff');
   faults={};
   await page.evaluate(()=>{window.confirm=()=>true;});
   await page.getByRole('button',{name:'Reverificar todo',exact:true}).click();await final();
@@ -110,7 +114,52 @@ async (page, baseline=false)=>{
   check((await warning.textContent()).includes('cuenta')&&!(await warning.textContent()).includes('siguen sin comprobarse'),'Identidad recibe un aviso específico sin sumar fallos persistentes');
   await reset({session:true},2);
   check(requests===1&&calls.size===0,'Sesión caducada impide consultas de actividades');
-  check((await warning.textContent()).includes('Sesión caducada'),'Sesión recibe un aviso específico sin reintento');
+  check((await warning.textContent()).includes('Inicia sesión en Moodle')&&await errorButton.isVisible(),
+    'Sesión caducada pide autenticación de inmediato');
+
+  await reset({},2);
+  await page.evaluate(()=>{
+    const data=JSON.parse(localStorage.fixture), prefix='ugr2:'+location.origin+':42:', t=Date.now();
+    data[prefix+'failures']={'assign:1':{code:'TIMEOUT',t,retryAt:t+120000,attempts:1,
+      details:{phase:'headers',timeoutMs:15000,html:'Contenido privado sintético'}}};
+    localStorage.fixture=JSON.stringify(data);
+  });
+  const beforeRestart=requests;
+  await page.reload();await final();
+  check(await errorButton.isHidden()&&requests===beforeRestart+1&&
+    (await diag()).activeFailures.some(f=>f.code==='TIMEOUT'&&f.recovery==='deferred'&&!f.recoveryFailed),
+    'Recargar con un TIMEOUT aplazado hace solo la consulta de sesión y conserva el fallo pendiente');
+  const another=await context.newPage();await another.goto(origin);
+  await another.waitForFunction(()=>JSON.parse(document.querySelector('#ugr-diagnostics')?.textContent||'{}').lastRun?.durationMs!==undefined);
+  check(await another.locator('[data-show-diagnostic]').isHidden(),'Otra pestaña conserva el mismo fallo aplazado sin aviso');
+  await another.close();
+  await page.locator('[data-personalize]').click();
+  const beforeDisplay=requests;
+  for(const position of ['hidden','top','bottom']){
+    await page.locator('[data-position]').selectOption(position);
+    check(await errorButton.isHidden(),'Fallo aplazado sin botón · '+position);
+  }
+  await page.locator('[data-open-diagnostic]').click();
+  check(await page.locator('#ugr-diagnostic[open]').isVisible()&&
+    (await diag()).activeFailures.some(f=>f.code==='TIMEOUT'),'Consultar el registro desde Personalizar sin el botón de error');
+  await page.evaluate(()=>{
+    Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.fixtureCopy=text;}}});
+  });
+  await page.locator('[data-copy-diagnostic]').click();
+  check(await page.evaluate(()=>JSON.parse(window.fixtureCopy).activeFailures.some(f=>f.code==='TIMEOUT')&&
+    !window.fixtureCopy.includes('Contenido privado sintético')),'Copiar solo el JSON sanitizado');
+  await page.locator('[data-auto-refresh-minutes]').selectOption('0');
+  for(const position of ['hidden','top','bottom']){
+    await page.locator('[data-position]').selectOption(position);
+    check(await errorButton.isVisible()&&(await diag()).activeFailures[0].recovery==='action_required',
+      'Sin una comprobación automática prevista pide atención · '+position);
+  }
+  check(requests===beforeDisplay,'Preferencias, Diagnóstico y copia no hacen solicitudes');
+  await page.locator('[data-personalize]').click();
+  await page.getByRole('tab',{name:/^Entregadas/}).click();
+  await page.locator('[data-reverify="assign:1"]').click();await final();
+  check(await errorButton.isHidden()&&requests===beforeDisplay+1&&(await diag()).activeFailures.length===0,
+    'Una comprobación válida retira el aviso pendiente con un solo GET');
   await reset({},2);
   activityCount=3;faults[3]=['timeout'];
   await page.locator('[data-refresh]').click();await final();
@@ -153,6 +202,10 @@ async (page, baseline=false)=>{
   const budget=(await diag()).lastRun;
   check(budget.retriesAttempted<=3&&budget.recoveryDeferred>=5&&budget.recoveryDurationMs>=74900&&budget.recoveryDurationMs<75100&&
     budget.timeoutPhase.headers===budget.retriesAttempted&&budget.persistentErrors===budget.retriesAttempted,'El presupuesto de 75 s solo cuenta las recuperaciones ejecutadas y fallidas');
+  const budgetStates=(await diag()).activeFailures.map(f=>f.recovery);
+  check(budgetStates.filter(s=>s==='exhausted').length===budget.retriesAttempted&&
+    budgetStates.filter(s=>s==='deferred').length===budget.recoveryDeferred&&await errorButton.isVisible(),
+    'TIMEOUT de recuperación agotado tiene botón y los aplazados mantienen su estado');
   pendingTimeout=undefined;
   for(const release of held.splice(0))release();
   return {passed,comparison};
