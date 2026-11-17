@@ -196,8 +196,9 @@
     for(const [k,v]of Object.entries(raw||{})) {
       if(!activityKey(k) && !/^calendar:\d{4}-\d{1,2}$/.test(k) && k!=='session')continue;
       if(!Object.hasOwn(ERROR_LABELS,v?.code)||!Number.isFinite(v.t)||v.t>now||!Number.isFinite(v.retryAt))continue;
+      const tracksRecovery=/^(assign|quiz|feedback):/.test(k)||(k==='session'&&v.code==='REDIRECT');
       out[k]={code:v.code,t:v.t,retryAt:Math.min(Math.max(v.retryAt,v.t),v.t+6*3600e3),attempts:Math.min(Math.max(Number(v.attempts)||1,1),10),
-        details:safeDetails(v.details),...(/^(assign|quiz|feedback):/.test(k)&&v.recoveryFailed===true?{recoveryFailed:true}:{})};
+        details:safeDetails(v.details),...(tracksRecovery&&v.recoveryFailed===true?{recoveryFailed:true}:{})};
     }
     return out;
   }

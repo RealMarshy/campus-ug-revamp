@@ -149,11 +149,27 @@ async (page, baseline=false)=>{
     'Redirección con una comprobación periódica prevista queda solo en Diagnóstico');
   await page.evaluate(()=>{
     const now=Date.now;
+    window.fixtureRealNow=now;
     Date.now=()=>now()+11*60_000;
   });
   await visible();
   await page.waitForFunction(()=>JSON.parse(document.querySelector('#ugr-diagnostics').textContent).lastPeriodicResult?.mode==='periodic');
   check(probes===beforePeriodic&&(await diag()).lastPeriodicResult.sessionProbe==='waiting','El temporizador conserva el backoff de sesión');
+  check(await page.locator('[data-show-diagnostic]').isHidden(),'La espera sin un GET de sesión conserva el aviso oculto');
+  await page.evaluate(()=>{Date.now=window.fixtureRealNow;});
+  const beforeRetry=await stats(), beforeRetryProbes=probes;
+  await button().click();await idle();
+  check(probes===beforeRetryProbes+1&&(await stats()).months===beforeRetry.months,
+    'La recuperación fallida usa un GET y no consulta el calendario');
+  check(await page.locator('[data-show-diagnostic]').isVisible()&&
+    (await diag()).activeFailures.some(f=>f.code==='REDIRECT'&&f.recovery==='exhausted'),
+    'Una nueva redirección tras una recuperación ejecutada permite consultar el error');
+  await page.reload();await idle();
+  check(await page.locator('[data-show-diagnostic]').isVisible()&&probes===beforeRetryProbes+1,
+    'La recarga conserva el aviso definitivo y respeta el backoff');
+  mode='ok';await clickAll();
+  check(await page.locator('[data-show-diagnostic]').isHidden()&&await sessionCode()===undefined,
+    'Una lectura válida posterior retira el aviso definitivo de sesión');
   for(const [kind,code] of [['network','NETWORK'],['http','HTTP'],['conflict','IDENTITY_CONFLICT'],['other','ACCOUNT_CHANGED'],['expired','SESSION_EXPIRED']]){
     mode='ok';
     await page.reload();await idle();

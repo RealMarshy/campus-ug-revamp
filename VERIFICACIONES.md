@@ -1,5 +1,48 @@
 # Verificaciones de Campus UG Revamp
 
+## Auditoría final de publicación · 2.5.1
+
+**Veredicto técnico: apto para publicación.** La candidata conserva la versión 2.5.1. Esta auditoría no crea un tag ni una Release.
+
+Frente a v2.5.0, la candidata incorpora la recuperación manual de sesión tras una redirección, etiquetas uniformes, disponibilidad de entrega y edición, fechas de comprobación opcionales, avisos de fallos definitivos y la reorganización de Personalizar. El ajuste opcional de tamaño de letra se guarda en el esquema existente. La auditoría corrigió dos defectos reproducidos en Chrome:
+
+| Severidad | Defecto | Resultado de la regresión |
+| --- | --- | --- |
+| Media | Una redirección repetida seguía aplazada aun después de ejecutar un nuevo GET de recuperación. | El primer fallo sigue aplazado cuando hay otra comprobación prevista. Si esa lectura vuelve a redirigir, «Consultar error» se muestra, persiste al recargar y desaparece tras una lectura válida. La espera y la cantidad de consultas se conservan. |
+| Baja | Nombres y fechas podían quedar en el contenido oculto del panel de fechas de Diagnóstico. | Al cerrar el desplegable o detenerse por invalidación de la sesión se vacía ese contenido. Las fechas guardadas siguen disponibles al abrirlo con una sesión válida. |
+
+Después de corregir ambos defectos pasaron **44 pruebas Node y 947 comprobaciones en 26 suites de Chrome**, con cero fallos y cero omisiones. Las suites cubrieron las categorías y las dos vistas, los detectores de los cuatro módulos, las entregas y calificaciones, los estados históricos y las declaraciones manuales. También cubrieron errores de red, autenticación, cancelación, recuperaciones, coordinación entre pestañas y Personalizar a 320, 360 y 960 px. Se usaron Node 22.20.0 y Chrome 157.0.8103.51.
+
+### Pruebas del paquete y compatibilidad
+
+El ZIP exacto se extrajo y se cargó como extensión Manifest V3 en Chrome con perfiles temporales. Se verificaron la tarea entregada y su nota, el modal y su ilustración pública, el teclado, y la persistencia del tamaño de letra, de la posición del estado y del intervalo tras reiniciar Chrome. Abrir y cerrar los controles de Personalizar no hizo solicitudes HTTP.
+
+Se instalaron las versiones 2.1.0, 2.3.0 y 2.5.0 desde sus tags, con historiales y preferencias sintéticos. La actualización en la misma ruta conservó el identificador, las entradas de historial existentes, la caché vigente, la declaración manual, las preferencias y el intervalo de 15 minutos. La primera carga de cada actualización hizo un GET de sesión y cero lecturas de actividad. Las regresiones comprobaron además la preservación de notas y evidencia académica anterior.
+
+### F5 y solicitudes HTTP
+
+Se comparó la candidata inmediatamente anterior con el ZIP auditado usando las mismas 24 tareas sintéticas. La carga inicial hizo **31 solicitudes en cada versión**. Fueron 24 lecturas de tareas, seis de calendario y una de sesión. Las siete recargas con caché vigente de cada versión hicieron un GET de sesión y cero lecturas de tareas y calendario.
+
+| Mediana de siete recargas | Candidata anterior | ZIP auditado |
+| --- | ---: | ---: |
+| Primera fila insertada desde la navegación | 28,8 ms | 30,4 ms |
+| Sincronización interna | 5 ms | 5 ms |
+
+Los tiempos corresponden a respuestas sintéticas interceptadas por Chrome. La primera fila se midió al entrar al DOM. Los tiempos de la red y de renderizado de Moodle UG quedan fuera de esta medición.
+
+### Seguridad, privacidad y distribución
+
+La revisión del diff y las pruebas de red confirmaron el permiso `storage`, el alcance original de Moodle UG, el rechazo de redirecciones, la comprobación de cuenta y módulo y el aislamiento del almacenamiento por cuenta. El POST existente solo consulta el calendario mensual. Las lecturas de actividades usan GET. No hubo solicitudes académicas de escritura ni cambios en entregas, participación o notas. El diagnóstico copiable conserva su lista de campos sanitizados. La interfaz escapa texto procedente de Moodle.
+
+El paquete contiene nueve archivos públicos. Se comprobó que cada archivo coincide byte a byte con el borrador, que el manifiesto declara 2.5.1 y que los recursos referenciados existen. Conserva MIT, los créditos y la ilustración pública CC0. La revisión del árbol y del ZIP no encontró credenciales, cookies, HTML autenticado, datos académicos reales, capturas personales, caché ni el JPG privado. Los fixtures usan datos sintéticos y quedan fuera del ZIP.
+
+- `campus-ug-revamp-2.5.1.zip` pesa **81.611 bytes**.
+- SHA-256 `C05BB01EBDE186CBB8BF44DF6DD8703A3FEB5B7E9ABD6E490C2618CD684D8937`.
+- La instalación personal conserva la ruta, el ID, el almacenamiento y la imagen privada.
+- La Release v2.5.0 mantiene su ZIP. La descarga se cotejó con el SHA-256 publicado por GitHub.
+
+Las pruebas de esta auditoría usaron datos sintéticos. La validación previa del usuario en Moodle UG corresponde a la candidata anterior a estos dos ajustes. Para comprobarlos en Moodle UG, tras recargar la extensión abre y cierra **Diagnóstico → Fechas de comprobación** y vuelve a abrirlo para confirmar que las fechas guardadas reaparecen. Si Moodle redirige dos comprobaciones de sesión consecutivas, verifica que «Consultar error» aparezca después del GET de recuperación y desaparezca al restaurarse la sesión. Este escenario depende de una redirección real de Moodle.
+
 ## Reorganización de Personalizar · 2.5.1
 
 Las tres primeras filas agrupan Título y Vista de categorías, Tamaño del panel y Actividades visibles, y Apariencia y Tamaño de letra. A continuación aparecen Modo desarrollador y Restaurar configuración predeterminada. El apartado técnico usa un desplegable nativo, empieza contraído y conserva la ubicación, la visibilidad y el intervalo al cerrarse. El ajuste de letra añade una preferencia opcional al esquema existente. Las preferencias anteriores conservan el tamaño Normal.

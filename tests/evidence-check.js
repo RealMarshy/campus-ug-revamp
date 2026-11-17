@@ -438,6 +438,9 @@ async (page,baseline=false)=>{
   check(await position.inputValue()==='hidden'&&
     (await page.locator('[data-dates-list]').textContent()).includes(lastLabel.split(' · ').at(-1))&&
     !(await label()).includes('Verificado el'),'Diagnóstico conserva la fecha con el estado oculto');
+  await page.locator('[data-diagnostic-dates] > summary').click();
+  await page.waitForFunction(()=>!document.querySelector('[data-dates-list]').textContent,{},{timeout:3000});
+  check(await page.locator('[data-dates-list]').textContent()==='','Al cerrar las fechas no quedan nombres ni fechas en el contenido oculto');
   check(calls.length===readsBeforeLayout,'Cambiar vistas, anchos y temas no añade solicitudes');
   await page.waitForFunction(()=>JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':42:presentation']?.position==='hidden');
   await page.reload();await idle();

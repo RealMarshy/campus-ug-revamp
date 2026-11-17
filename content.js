@@ -221,7 +221,8 @@
   }
   function recordFailure(changes,k,e,stage,module='none',round='initial') {
     const previous=failures[k], failure=C.failureRecord(e,previous);
-    if(stage==='activity'&&(round==='recovery'||previous?.recoveryFailed))failure.recoveryFailed=true;
+    if((stage==='activity'&&(round==='recovery'||previous?.recoveryFailed))||
+      (stage==='session'&&failure.code==='REDIRECT'&&round==='recovery'))failure.recoveryFailed=true;
     failures[k]=failure;
     changes.push({type:'failure',key:k,value:failure});
     incidents.push({stage,module,round,code:failure.code,details:failure.details});
@@ -512,7 +513,8 @@
       if(cancelled)finalMessage='Reverificación cancelada.';
       else if(!stopped){
         if(refresh&&sessionProbe==='requested'&&e.code==='REDIRECT')refreshRedirect=true;
-        recordFailure(changes,'session',e,'session');
+        const redirectRecovery=sessionProbe==='requested'&&failures.session?.code==='REDIRECT'&&e.code==='REDIRECT';
+        recordFailure(changes,'session',e,'session','none',redirectRecovery?'recovery':'initial');
         if(periodic&&e.code==='IDENTITY_CONFLICT')stop();
         if(!stopped&&!actionable(failureStates().session))finalMessage='Actualización en espera. La sesión se volverá a comprobar.';
       }
@@ -1224,12 +1226,15 @@
   }
 
   function displayDiagnosticDates(){
-    if(!ui('[data-diagnostic-dates]').open)return;
+    const list=ui('[data-dates-list]');
+    if(!ui('[data-diagnostic-dates]').open||stopped){
+      if(list.textContent)list.textContent='';
+      return;
+    }
     const dated=state.items.flatMap(it=>{
       const date=verificationDate(verifiedAt(it));
       return date?[`${it.name} · ${date}`]:[];
     });
-    const list=ui('[data-dates-list]');
     const text=dated.join('\n')||'No hay fechas de comprobación guardadas.';
     if(list.textContent!==text)list.textContent=text;
   }
