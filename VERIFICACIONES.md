@@ -1,5 +1,29 @@
 # Verificaciones de Campus UG Revamp
 
+## Corrección de Tamaño de letra · 2.5.1
+
+**Publicación suspendida hasta la comprobación del usuario en Moodle UG.** Quedan pendientes la revisión complementaria de seguridad sobre los cambios posteriores al informe anterior y la comprobación del paquete que se vaya a publicar.
+
+En Chrome, con caché vigente y una lista sintética de 242 filas visibles, al pasar de Pequeño a Normal el selector cambiaba de inmediato, pero `data-font-size` seguía en `small`. El título permanecía en 16,56 px y el nombre de la actividad en 12,96 px. Normal se representa sin el campo opcional `fontSize`. La comparación anterior recorría solo los campos de la preferencia nueva, por lo que omitía ese cambio hasta que otro evento reconstruía la presentación. Ocurría con caché vigente y sin una consulta académica pendiente. La hoja de estilos no aplicaba una transición tipográfica. Grande era más consistente porque su preferencia sí incluía el campo, aunque Grande → Normal tenía el mismo defecto.
+
+El cambio aplica la escala y sincroniza el selector al aceptar cada preferencia, antes de guardar. Un cambio exclusivamente tipográfico conserva la lista y evita el renderizado general. Las escrituras siguen usando el esquema, la cola y el bloqueo existentes. Se conservaron las escalas y el alcance de la hoja de estilos.
+
+| Estilo calculado en Chrome | Pequeño | Normal | Grande |
+| --- | ---: | ---: | ---: |
+| Título | 16,56 px | 18,4 px | 21,16 px |
+| Actividad | 12,96 px | 14,4 px | 16,56 px |
+| Curso | 11,232 px | 12,48 px | 14,352 px |
+| Estado | 10,512 px | 11,68 px | 13,432 px |
+| Fecha y contador «Mostrando» | 11,52 px | 12,8 px | 14,72 px |
+| Contador de categoría | 10,8 px | 12 px | 13,8 px |
+| Selector de tamaño | 12,24 px | 13,6 px | 15,64 px |
+
+Se comprobó el estilo dentro del evento de cambio, antes de que terminara el guardado. El ZIP extraído se cargó como Manifest V3 en un perfil temporal. En una secuencia Pequeño → Normal → Grande → Normal → Pequeño, cada muestra del título se obtuvo entre **2,8 y 26,9 ms**. La medición incluye el cálculo de estilo de Chrome y corresponde al escenario local. Tras reiniciar Chrome se conservó Pequeño. Cambiar el tamaño añadió **cero solicitudes HTTP**.
+
+La suite de presentación comprobó cambios rápidos con caché vigente, un guardado anterior retenido, un GET de sesión retenido y una reverificación individual con respuesta retenida. La última selección se mantuvo al concluir la sincronización, abrir y cerrar Personalizar, recargar y cambiar otras preferencias. También se comprobaron la restauración a Normal y el aislamiento por cuenta. En ambas vistas y a 320, 360 y 960 px se conservaron los estilos calculados con Claro, Oscuro y Automático, incluida una simulación de Dark Reader. El estilo del resto de Moodle permaneció igual. En la secuencia de nueve cambios con 242 filas, las lecturas de diez estilos calcularon el tamaño actualizado en **18–37 ms**, sin renderizados generales.
+
+La batería final pasó **44 pruebas Node y 958 comprobaciones en 26 suites de Chrome**, con cero fallos y omisiones. La suite de presentación aportó 140 comprobaciones. El ZIP de desarrollo contiene nueve archivos públicos, pesa **81.683 bytes** y tiene SHA-256 `9D58FC4C8B66A00709B16CCD9C518ED0E285641501C76B8DFD560263B9D9E1FB`.
+
 ## Auditoría final de publicación · 2.5.1
 
 **Veredicto técnico: apto para publicación.** La candidata conserva la versión 2.5.1. Esta auditoría no crea un tag ni una Release.

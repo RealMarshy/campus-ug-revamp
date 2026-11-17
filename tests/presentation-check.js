@@ -267,6 +267,77 @@ async page=>{
     },width),'Distribución de Personalizar a '+width+' px');
   }
   await page.setViewportSize({width:1280,height:1000});
+  const font=setting('font-size');
+  const fontSample=async sequence=>font.evaluate((input,sequence)=>{
+    const panel=input.closest('#ugr-panel');
+    const selectors=['#ugr-title','.ugr-main a','.ugr-course','.ugr-source','.ugr-when',
+      '.ugr-tabs button','.ugr-tabs button span','.ugr-list-toolbar','#ugr-preferences label','[data-font-size]'];
+    const sizes=()=>selectors.map(selector=>{
+      const element=panel.querySelector(selector);
+      return element?parseFloat(getComputedStyle(element).fontSize):null;
+    });
+    const renders=()=>JSON.parse(panel.dataset.metrics).renders;
+    const startRenders=renders(), before=sizes(), outside=getComputedStyle(document.body).fontSize, row=panel.querySelector('.ugr-item');
+    const steps=sequence.map(value=>{
+      const start=performance.now();
+      input.value=value;
+      input.dispatchEvent(new Event('change',{bubbles:true}));
+      const sizesNow=sizes();
+      return {value:input.value,applied:panel.dataset.fontSize,sizes:sizesNow,ms:performance.now()-start};
+    });
+    return {before,steps,renders:renders()-startRenders,sameRow:panel.querySelector('.ugr-item')===row,
+      sameOutside:outside===getComputedStyle(document.body).fontSize};
+  },sequence);
+  const sequence=['small','normal','small','normal','large','normal','small','large','normal'];
+  const measure=await fontSample(sequence);
+  const matchesFont=(sample,baseline,values)=>sample.steps.every((step,i)=>
+    step.value===values[i]&&step.applied===values[i]&&step.ms<100&&step.sizes.every((size,j)=>
+      size===null?baseline[j]===null:Math.abs(size-baseline[j]*({small:.9,normal:1,large:1.15}[values[i]]))<.03));
+  check(matchesFont(measure,measure.before,sequence)&&measure.renders===0&&measure.sameRow&&measure.sameOutside,
+    'Tipografía inmediata durante cambios rápidos '+JSON.stringify(measure));
+  const presentationKey='ugr2:'+origin+':42:presentation';
+  const savedFont=value=>page.waitForFunction(({key,value})=>{
+    const preference=JSON.parse(localStorage.fixture)[key];
+    return preference&&(preference.fontSize??'normal')===value;
+  },{key:presentationKey,value});
+  await font.selectOption('large');
+  await savedFont('large');
+  await page.evaluate(key=>{
+    const storage=chrome.storage.local, set=storage.set;
+    const gate=new Promise(resolve=>{window.releaseFontWrite=resolve;});
+    storage.set=async values=>{
+      if(Object.hasOwn(values,key)&&!window.fontWriteHeld){
+        window.fontWriteHeld=true;
+        await gate;
+      }
+      await set.call(storage,values);
+      if(Object.hasOwn(values,key))window.fontWritesCompleted=(window.fontWritesCompleted??0)+1;
+    };
+  },presentationKey);
+  await font.selectOption('small');
+  await page.waitForFunction(()=>window.fontWriteHeld===true);
+  const whileSaving=['normal','large','small','normal'];
+  const held=await fontSample(whileSaving);
+  check(matchesFont(held,measure.before,whileSaving)&&held.renders===0&&
+    (await store())[presentationKey].fontSize==='large','Cambiar de tamaño sin esperar la escritura de Pequeño '+JSON.stringify(held));
+  await open();await open();
+  check(await font.inputValue()==='normal'&&await title.evaluate(el=>parseFloat(getComputedStyle(el).fontSize))===measure.before[0],
+    'Cerrar y reabrir conserva Normal mientras una escritura antigua espera');
+  await page.evaluate(()=>window.releaseFontWrite());
+  await page.waitForFunction(()=>window.fontWritesCompleted===2);
+  await savedFont('normal');
+  for(const [mode,width,appearance] of [['tabs',320,'light'],['custom',360,'dark'],['custom',960,'auto']]){
+    await setting('mode').selectOption(mode);
+    await setting('appearance').selectOption(appearance);
+    await page.setViewportSize({width,height:900});
+    if(appearance==='auto')await page.evaluate(()=>{document.documentElement.dataset.darkreaderScheme='dark';});
+    const sample=await fontSample(['small','large','normal']);
+    check(matchesFont(sample,sample.before,['small','large','normal'])&&sample.renders===0&&sample.sameRow,
+      'Escala calculada en '+mode+' · '+width+' px · '+appearance);
+  }
+  await page.evaluate(()=>{delete document.documentElement.dataset.darkreaderScheme;});
+  await setting('mode').selectOption('tabs');
+  await page.setViewportSize({width:1280,height:1000});
   await openDeveloper();
     await setting('toggle-status').press('Enter');
   check(await status.isVisible()&&await setting('position').inputValue()==='top','Mostrar por primera vez sitúa el estado arriba');
@@ -374,6 +445,44 @@ async page=>{
     await setting('limit').inputValue()==='10' && await setting('mode').inputValue()==='custom' &&
     await setting('size').inputValue()==='wide' && await status.isHidden() && await rows.count()===10,
   'Preferencias y estado oculto restaurados tras recargar');
+  let releaseSession, sessionStarted;
+  const blockedSession=new Promise(resolve=>{releaseSession=resolve;});
+  const sessionRequested=new Promise(resolve=>{sessionStarted=resolve;});
+  const holdSession=async route=>{
+    if(!route.request().isNavigationRequest()){sessionStarted();await blockedSession;}
+    await route.fallback();
+  };
+  await page.route(origin+'/my/',holdSession);
+  await setting('refresh').click();await sessionRequested;
+  const whileSync=['small','normal','large','small'];
+  try{
+    const during=await fontSample(whileSync);
+    check(matchesFont(during,during.before,whileSync)&&during.renders===0&&during.sameRow,
+      'La sincronización con respuesta de Moodle retenida no demora la tipografía');
+  }finally{releaseSession();}
+  await settle();await page.unroute(origin+'/my/',holdSession);
+  await savedFont('small');
+  check(await font.inputValue()==='small'&&await panel.getAttribute('data-font-size')==='small',
+    'La sincronización al terminar respeta la última selección');
+  await page.reload();await settle();await open();
+  check(await font.inputValue()==='small'&&await panel.getAttribute('data-font-size')==='small',
+    'F5 conserva Pequeño y su escala aplicada');
+  const reverify=panel.locator('[data-reverify^="assign:"]').first();
+  const activityId=(await reverify.getAttribute('data-reverify')).split(':')[1];
+  let releaseActivity, activityStarted;
+  const blockedActivity=new Promise(resolve=>{releaseActivity=resolve;});
+  const activityRequested=new Promise(resolve=>{activityStarted=resolve;});
+  const activityUrl=origin+'/mod/assign/view.php?id='+activityId;
+  const holdActivity=async route=>{activityStarted();await blockedActivity;await route.fallback();};
+  await page.route(activityUrl,holdActivity);
+  await reverify.click();await activityRequested;
+  try{
+    const heldActivity=await fontSample(['normal','small','normal','large','small']);
+    check(matchesFont(heldActivity,measure.before,['normal','small','normal','large','small'])&&heldActivity.renders===0,
+      'La reverificación de una actividad con respuesta retenida no retrasa el estilo');
+  }finally{releaseActivity();}
+  await settle();await page.unroute(activityUrl,holdActivity);
+  check(await font.inputValue()==='small','El renderizado posterior a la reverificación conserva Pequeño');
   await expand(quickTypes);
   await quickTypeBox.locator('[data-activity-type][value="forum"]').uncheck();
   await page.waitForFunction(()=>!JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':42:presentation'].activityTypes.includes('forum'));
@@ -435,7 +544,8 @@ async page=>{
   await page.evaluate(()=>fetch('/mode?value=other'));
   await page.route(origin+'/lib/ajax/service.php?*',route=>route.fulfill({json:[{data:{weeks:[]}}]}));
   await page.reload();await settle();await open();
-  check(await title.textContent()==='Otra cuenta' && await setting('course').inputValue()==='all','Preferencias aisladas por cuenta');
+  check(await title.textContent()==='Otra cuenta' && await setting('course').inputValue()==='all'&&
+    await font.inputValue()==='normal','Preferencias y letra aisladas por cuenta');
   check(await status.isVisible() && await setting('position').inputValue()==='top','La otra cuenta conserva Arriba');
   await page.evaluate(()=>{
     const data=JSON.parse(localStorage.fixture);
@@ -455,9 +565,11 @@ async page=>{
   await expand(quickDate);
   await dateBox.getByRole('button',{name:'Dentro de 1 semana'}).click();
   const priorRestore=await store();
+  await font.selectOption('large');
   await setting('reset-presentation').click();
   check(await setting('position').isHidden()&&await setting('reset-presentation').isVisible()&&
-    await setting('font-size').inputValue()==='normal','Restaurar contrae las opciones y recupera la letra normal');
+    await font.inputValue()==='normal'&&await panel.getAttribute('data-font-size')==='normal',
+    'Restaurar contrae las opciones y recupera la letra normal');
   await page.waitForFunction(()=>JSON.parse(localStorage.fixture)['ugr2:'+location.origin+':99:presentation']?.size==='normal',null,{timeout:5000})
     .catch(()=>{throw Error('La configuración predeterminada no se guardó');});
   const restored=await store();
@@ -467,5 +579,5 @@ async page=>{
     'Restaurar configuración restablece también las categorías, tipos y fecha');
   check(await title.textContent()===defaultTitle && Object.entries(priorRestore).filter(([k])=>!k.endsWith(':presentation'))
     .every(([k,v])=>JSON.stringify(restored[k])===JSON.stringify(v)),'Restaurar configuración sin tocar datos académicos');
-  return {passed,preferenceRequests:0,fixtureActivities:all.length,heights};
+  return {passed,preferenceRequests:0,fixtureActivities:all.length,heights,font:measure};
 }

@@ -618,6 +618,7 @@
   function applyPresentation(next){
     const previous=preferences;
     preferences=next;
+    if(next.fontSize!==previous.fontSize)displayFontSize();
     if(next.appearance!==previous.appearance)updateAppearance();
     if(next.autoRefreshMinutes!==previous.autoRefreshMinutes&&periodicAnchor!==null){
       periodicAnchor=Date.now();
@@ -626,7 +627,7 @@
     }
     if(next.position!==previous.position)displayStatus(statusRecords);
     return (next.position==='hidden')!==(previous.position==='hidden')||
-      Object.keys(next).some(field=>!['appearance','position','restoreStatusBelow'].includes(field)&&
+      Object.keys(next).some(field=>!['appearance','position','restoreStatusBelow','fontSize'].includes(field)&&
       JSON.stringify(next[field])!==JSON.stringify(previous[field]));
   }
   /* ---------- clasificación ---------- */
@@ -1275,11 +1276,17 @@
     button?.focus();
   }
 
+  function displayFontSize() {
+    const size=preferences.fontSize??'normal', select=ui('[data-font-size]');
+    if(panel.dataset.fontSize!==size)panel.dataset.fontSize=size;
+    if(select.value!==size)select.value=size;
+  }
+
   function displayPreferences() {
     displayDateRange();
     displayTitle();
     panel.dataset.size=preferences.size;
-    panel.dataset.fontSize=ui('[data-font-size]').value=preferences.fontSize??'normal';
+    displayFontSize();
     for(const field of ['position','mode','size','limit'])ui(`[data-${field}]`).value=preferences[field]??'';
     ui('[data-auto-refresh-minutes]').value=preferences.autoRefreshMinutes;
     for(const input of panel.querySelectorAll('[data-category]'))input.checked=preferences[categoryPreference()].includes(input.value);
