@@ -1,5 +1,55 @@
 # Verificaciones de Campus UG Revamp
 
+## Cierre técnico antes de publicación · 18 de noviembre de 2026
+
+**APTO PARA PUBLICACIÓN.** El usuario confirmó en Moodle UG real la corrección del cambio entre Pequeño y Normal. La publicación oficial continúa sujeta a autorización posterior.
+
+### Revisión complementaria
+
+Se revisaron los siete archivos de texto modificados entre `b55e34144e5626201afbfd493eb2a44554e4d841` y `e1f4d1130ce0a6a9b5347dc89b65a3633b1b2208`. El SHA base escrito en la solicitud contenía un carácter adicional. La base usada corresponde al informe anterior y se resolvió con Git.
+
+| Superficie revisada | Evidencia y resultado |
+| --- | --- |
+| `content.js` · errores de sesión | La marca de recuperación agotada de REDIRECT exige una nueva lectura ejecutada que también redirija. Se conservan el backoff, el rechazo de 3xx, la comprobación de identidad y la salida previa al calendario. La espera sin una lectura ejecutada permanece aplazada. Una lectura válida retira el fallo. |
+| `core.js` · persistencia del fallo | La limpieza acepta la marca booleana únicamente en las claves de actividad autorizadas o en la clave de sesión con código REDIRECT. Valida tiempos y conserva la lista permitida de detalles sanitizados. |
+| `content.js` · fechas locales | El subpanel de fechas vacía su contenido al cerrarse o cuando la ejecución se detiene. Usa `textContent`. Los nombres y fechas locales quedan fuera del JSON copiable. |
+| `content.js` · tipografía y preferencias | La escala y el selector se aplican antes del guardado. Solo se admiten los valores normalizados por `presentation()`. La cola conserva la selección pendiente, serializa escrituras con un Web Lock y valida la cuenta antes de escribir. El cambio de letra no dispara red, sincronización ni renderizado general. |
+| Pruebas y documentación | Se revisaron `tests/evidence-check.js`, `tests/failures.test.cjs`, `tests/presentation-check.js`, `tests/session-check.js` y este registro. Los nuevos casos usan datos sintéticos. No se agregaron permisos, rutas ni recursos de red. |
+
+La revisión local no identificó vulnerabilidades confirmadas ni defectos bloqueantes nuevos. Se cubrió todo el diff autorizado y se contrastaron los archivos funcionales con el ZIP. El gestor de Codex Security rechazó el arranque del análisis con «Review changes requires a non-bare Git worktree with a resolvable HEAD», aunque el Git local verificó el árbol, la base y HEAD. Por ello esta revisión complementaria se documenta localmente y carece de un nuevo informe sellado de ese gestor. La falta de acceso de la cuenta a Daybreak fue un aviso informativo. Ninguna de esas condiciones sustituye los resultados de revisión y prueba aquí descritos.
+
+### ZIP exacto
+
+| Archivo público | Bytes sin comprimir |
+| --- | ---: |
+| `manifest.json` | 651 |
+| `core.js` | 62.666 |
+| `content.js` | 97.572 |
+| `styles.css` | 15.326 |
+| `LICENSE` | 1.074 |
+| `README.md` | 8.279 |
+| `CHANGELOG.md` | 7.606 |
+| `assets/hagalo-usted-mismo.png` | 24.577 |
+| `assets/LICENCIA-ILUSTRACION.md` | 725 |
+
+El paquete previo de ocho archivos, conservado antes de reorganizar Personalizar, carecía de `CHANGELOG.md`. Ese es el noveno archivo del paquete actual. Cada entrada del ZIP coincide byte a byte con el borrador auditado. El manifiesto declara 2.5.1 y MV3, solicita únicamente `storage` y conserva los patrones de Moodle UG. Los scripts, la hoja de estilo y la imagen local declarados están presentes. Se conservan MIT, el aviso exacto `Copyright (c) 2026 Jonathan-hue-sudo`, las atribuciones originales y la licencia CC0 de la ilustración pública.
+
+La inspección del árbol público y de las nueve entradas del paquete no encontró HTML autenticado, datos de sesión, cookies, credenciales, historial académico privado ni el JPG personal. El ZIP pesa **81.683 bytes** y mantiene SHA-256 `9D58FC4C8B66A00709B16CCD9C518ED0E285641501C76B8DFD560263B9D9E1FB`.
+
+### Pruebas de cierre
+
+Pasaron de nuevo **44 pruebas Node** y **622 comprobaciones en ocho suites Chrome**. Las suites seleccionadas fueron Presentación (140), Evidencia (136), Feedback (75), Primer intento de cuestionario (122), Sesión (29), Actualización periódica (40), Migración (27) y Diagnóstico (53). Todas las seleccionadas pasaron. Las otras 16 suites conservan la ejecución conjunta previa de **958 comprobaciones en 26 suites**, realizada sobre el mismo código funcional. Este cierre no modificó código funcional.
+
+El ZIP exacto se extrajo y cargó como extensión MV3 en un perfil limpio de Chrome. Pasaron **33 comprobaciones adicionales**, con almacenamiento real de extensión. Se comprobaron Pequeño, Normal y Grande mediante estilo calculado, Diagnóstico, vaciado del subpanel de fechas, Créditos con la imagen pública, Escape, entrega confirmada, persistencia tras reiniciar y F5 con caché. La carga inicial hizo nueve lecturas permitidas para las dos actividades sintéticas. F5 y el reinicio hicieron una consulta de sesión y cero lecturas de actividad. Cambiar el tamaño, abrir Diagnóstico y navegar por la interfaz añadió cero solicitudes HTTP.
+
+La instalación personal conservó su ruta y el ID registrado, y se comprobó la presencia de su almacenamiento. Su código funcional coincide con el borrador, con la sustitución esperada de la ilustración pública por la privada. El JPG privado mantiene el hash anterior. Esta auditoría no escribió en la instalación personal ni en sus datos.
+
+Las rutas de los originales se resolvieron en el sistema de archivos de Windows. El informe y el ZIP se copiaron a una carpeta identificable dentro de Descargas, con verificación de lectura y de igualdad de hashes. El Explorador mostró ambas copias y abrió el ZIP como carpeta comprimida. Los originales se conservan en el proyecto. En los enlaces anteriores se escribió con tilde el nombre de una carpeta cuya ruta real usa «Extension para chrome», lo que producía enlaces locales incorrectos.
+
+### Límites del cierre
+
+La confirmación real del tamaño de letra corresponde al usuario. Las pruebas nuevas del paquete y de errores fueron sintéticas. Dark Reader se cubrió mediante simulación en la regresión existente. La revisión complementaria sellada del gestor de seguridad queda pendiente por el error de arranque descrito. No se detectó un riesgo residual bloqueante en el alcance revisado. El estado académico almacenado se preservó sin inspeccionar contenido académico privado.
+
 ## Corrección de Tamaño de letra · 2.5.1
 
 **Publicación suspendida hasta la comprobación del usuario en Moodle UG.** Quedan pendientes la revisión complementaria de seguridad sobre los cambios posteriores al informe anterior y la comprobación del paquete que se vaya a publicar.
