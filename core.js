@@ -4,7 +4,8 @@
   const CONFIG = Object.freeze({ pending: 10*60e3, completed: 24*3600e3,
     calendar: 15*60e3, history: 24*3600e3, archiveProbe: 7*24*3600e3, timeout: 15000, concurrency: 3,
     recoveryTimeout: 25000, recoveryBudget: 75000, recoveryLimit: 6, maxServerWait: 2000,
-    periodicRecoveryBudget: 25000, periodicRecoveryLimit: 2 });
+    periodicRecoveryBudget: 25000, periodicRecoveryLimit: 2,
+    refreshLimit: 3, refreshInterval: 60e3, refreshGradeInterval: 5*60e3, refreshDueWindow: 14*86400e3 });
   const mods = { assign: 'Tarea', quiz: 'Cuestionario', forum: 'Foro', feedback:'Encuesta' };
   const feedbackStates=['available','in_progress','not_yet_open','closed','restricted','unknown'];
   const calendarTime=value=>Number.isSafeInteger(value)&&value>0&&value<=8640000000000;
@@ -106,6 +107,43 @@
     if(status.quizOpenAt&&last<status.quizOpenAt&&now>=status.quizOpenAt)return 'check';
     if(closeAt && verified?.closedAt===closeAt && last>closeAt && now-last<CONFIG.archiveProbe)return 'archive';
     return now-last>=(status.done?CONFIG.completed:CONFIG.pending)?'check':'cache';
+  }
+
+  // Only an explicit refresh can advance a cached check. Ordinary work keeps its own policy.
+  function planRefresh(candidates,{auto,manual,failures,stamps,lastBatchAt,now}) {
+    const groups=[[],[],[]];
+    const eligible=new Set(),selected=new Set();
+    for(const {it,closeAt} of candidates){
+      const id=it.mod+':'+it.cmid, status=auto[id], stamp=stamps[id];
+      const distance=Math.abs(it.due*1000-now);
+      if(!it.due||distance>CONFIG.refreshDueWindow||failures[id]||status?.source!=='moodle')continue;
+      const decision=verificationDecision({item:it,status,manual:manual[id],stamp,closeAt,now});
+      if(decision!=='cache'&&decision!=='archive')continue;
+      const verified=stamp?.stateAt===status.t?stamp:null;
+      const last=verified?.t??status.t;
+      let group;
+      if(status.done){
+        if(it.mod!=='assign'&&it.mod!=='quiz')continue;
+        group=verified?.grade?2:1;
+      }else{
+        if(decision==='archive'||status.evaluationGrade||['group_blocked','no_submission_option'].includes(status.assignAvailability))continue;
+        if(it.mod==='quiz'&&status.absence&&!status.available)continue;
+        if(it.mod==='feedback'&&!['available','in_progress'].includes(status.feedbackState))continue;
+        group=0;
+      }
+      if(now-last<(group===2?CONFIG.refreshGradeInterval:CONFIG.refreshInterval))continue;
+      eligible.add(id);
+      groups[group].push({id,last,distance});
+    }
+    if(!eligible.size||lastBatchAt>0&&now-lastBatchAt<CONFIG.refreshInterval)return {selected,eligible};
+    for(const group of groups)group.sort((a,b)=>a.last-b.last||a.distance-b.distance||a.id.localeCompare(b.id,'en'));
+    for(let round=0;round<CONFIG.refreshLimit&&selected.size<CONFIG.refreshLimit;round++){
+      for(const group of groups){
+        if(group[round])selected.add(group[round].id);
+        if(selected.size===CONFIG.refreshLimit)break;
+      }
+    }
+    return {selected,eligible};
   }
 
   // Activity requests have no write-capable routes. The single POST is the calendar read method.
@@ -874,6 +912,6 @@
   }
 
   globalThis.UGCore = { CONFIG, mods, item, empty, clean, needsCheck, selectorUpgrade, verificationDecision, allowsRequest, closeEvidence, identity, ERROR_LABELS, problem, retryAfter, recoveryWait, failureVisibility, safeDetails, failureRecord, cleanFailures, checkIdentity, recognizeFeedback, recognize, gradeText, readState, mergeMonth, completion, categories, titleLimit, presentation, matchesCategory, presentationList };
-  Object.assign(globalThis.UGCore,{datePresets,dateRange,dateBounds,filterPresentationRows});
+  Object.assign(globalThis.UGCore,{datePresets,dateRange,dateBounds,filterPresentationRows,planRefresh});
   if(typeof module !== 'undefined') module.exports = globalThis.UGCore;
 })();

@@ -1,8 +1,8 @@
-# Campus UG Revamp 2.5.1 (desarrollo)
+# Campus UG Revamp 2.6.0 (desarrollo)
 
 Extensión comunitaria e independiente para Chrome que reúne las actividades del Área personal de Moodle de la Universidad de Guayaquil. Usa Manifest V3. Este proyecto no es oficial ni está afiliado a la Universidad de Guayaquil o a Moodle.
 
-**Descarga oficial** · [ZIP de Campus UG Revamp 2.5.0](https://github.com/RealMarshy/campus-ug-revamp/releases/download/v2.5.0/campus-ug-revamp-2.5.0.zip).
+**Versión estable** · [Descarga de Campus UG Revamp 2.5.1](https://github.com/RealMarshy/campus-ug-revamp/releases/tag/v2.5.1).
 
 Los accesos rápidos **Categorías** y **Tipos de actividad** permiten elegir qué pestañas se muestran y filtrar por Tareas, Cuestionarios, Foros o Encuestas. Puedes seleccionar o deseleccionar todas las opciones y cerrar el menú desde el mismo botón o con **Escape**. En **Personalizar** puedes cambiar de vista y restaurar los valores predeterminados. Los tipos se combinan con el curso en ambas vistas. **Lista simple (Antiguo)** reúne las categorías seleccionadas sin duplicar actividades y recuerda su selección por separado.
 
@@ -46,7 +46,7 @@ Para actualizar una instalación existente, coloca los archivos nuevos en la mis
 | Pendientes | Actividades por realizar, foros por confirmar y encuestas o cuestionarios cerrados con participación sin confirmar. |
 | Sin verificar | Actividades cuyo estado sigue sin confirmarse. |
 
-**Actualizar** vuelve a consultar el mes actual y los dos siguientes. Aprovecha los datos vigentes y verifica las actividades según su política de revisión. **Reverificar todo** amplía la consulta a seis meses y ofrece una segunda pasada para ciertos errores transitorios. El panel muestra un resumen de las consultas y los fallos.
+**Actualizar** vuelve a consultar el mes actual y los dos siguientes. Además de comprobar las actividades nuevas o con datos vencidos, puede adelantar hasta tres lecturas de actividades cercanas al vencimiento para detectar entregas y calificaciones. El resumen indica cuántas actividades se comprobaron y cuántas conservaron el resultado guardado. Para comprobar de inmediato una actividad concreta, usa su botón de reverificación. **Reverificar todo** amplía la consulta a seis meses. [Política y plan de 2.6.0](docs/PLAN-2.6.0.md)
 
 Si el panel indica que no pudo comprobar tu sesión, vuelve al Área personal y pulsa **Actualizar**. Si el aviso indica que la sesión está en espera, deja pasar 30 segundos desde la última comprobación manual antes de intentarlo de nuevo.
 

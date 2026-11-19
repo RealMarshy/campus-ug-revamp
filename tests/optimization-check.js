@@ -43,8 +43,8 @@ async page=>{
  await full(false);
  assert(reads.length===2&&calendar.length===9,'Cancelar reverificación no consulta');
  await setClock(start+86400001);await normal();await settled();
- assert(reads.length===3&&reads.at(-1)==='1','Vencimiento no archiva tarea y cierre omite quiz');
- assert((await report()).archived===1,'Archivo operativo omite quiz caducado');
+ assert(reads.length===4&&reads.slice(-2).sort().join()==='1,2','Tarea caducada y cuestionario cerrado reciente sin nota');
+ assert((await report()).refreshChecked===1,'Una lectura anticipada de nota sobre el archivo operativo');
  const before=await page.evaluate(()=>JSON.parse(localStorage.fixture));
  const beforeAuto=Object.values(before).find(v=>v.changes).changes.filter(c=>c.type==='auto').length;
  delivered=false;

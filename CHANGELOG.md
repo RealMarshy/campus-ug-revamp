@@ -2,7 +2,12 @@
 
 Este historial resume las versiones de Revamp, derivado de [Panel de Tareas UG](https://github.com/danieIabel/campus-ug).
 
-## 2.5.1 (desarrollo)
+## 2.6.0 (desarrollo)
+
+- Actualizar puede adelantar hasta tres comprobaciones de entregas y calificaciones próximas a su vencimiento o vencidas recientemente. El resumen distingue los resultados reutilizados, las calificaciones recibidas y las comprobaciones anticipadas pendientes.
+- Dos pestañas que solicitan la misma actualización al mismo tiempo comparten el resultado si la primera termina correctamente.
+
+## 2.5.1
 
 - Organiza Personalizar en tres filas y reúne los controles técnicos en el Modo desarrollador. Añade un ajuste de tamaño de letra.
 

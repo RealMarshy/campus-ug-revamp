@@ -1,5 +1,50 @@
 # Verificaciones de Campus UG Revamp
 
+## 2.6.0 · Primer incremento de sincronización · 19 de noviembre de 2026
+
+**Rama de desarrollo validada con Moodle simulado.** La referencia comparativa es el tag `v2.5.1` en `a0d40452128515abeb946d2a88cd78e4a4f6e8eb`. La política y el recorrido por el código están en el [plan de desarrollo](docs/PLAN-2.6.0.md).
+
+### Regresión y reproducción
+
+Node 22.20.0 aprobó 49 pruebas. Chrome 157.0.8103.80 aprobó 1.005 comprobaciones en 28 suites. Hubo cero fallos y cero omisiones. Las 26 suites anteriores aportaron 958 comprobaciones y las dos comparativas aportaron 22 en la referencia y 25 en la candidata. El ejecutor incluye las referencias históricas de recuperación y sesión por defecto.
+
+Desde la raíz del worktree, ejecutar `npm test` y `npm run test:browser` con `UG_PLAYWRIGHT_CLI` configurada según la sección de entorno. Para reproducir solo la comparación, usar `node tests/run-browser.cjs smart-refresh-baseline smart-refresh`. La referencia necesita el tag local v2.5.1. Ambas suites sirven los scripts por el mismo mecanismo, usan perfiles temporales y la misma secuencia de cambios en loopback. El reloj académico avanza de manera controlada. Los tiempos de ejecución usan el reloj de rendimiento de Chrome.
+
+### Coste observado
+
+Cada celda presenta **2.5.1 / 2.6.0**. HTTP cuenta las lecturas académicas de la extensión, incluida la sesión. GET de actividad excluye sesión y calendario. La duración abarca la sincronización interna. Los renderizados cuentan llamadas a la función de renderizado de la pestaña principal. Son observaciones individuales salvo la mediana indicada.
+
+| Escenario | HTTP total | GET de actividad | Calendario | Sincronización (ms) | Renderizados |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Inicio con tres actividades | 10 / 10 | 3 / 3 | 6 / 6 | 33 / 32 | 8 / 8 |
+| F5 vigente (mediana de tres) | 1 / 1 | 0 / 0 | 0 / 0 | 11 / 11 | 8 / 8 |
+| Entrega, primera nota y corrección | 4 / 7 | 0 / 3 | 3 / 3 | 10 / 12 | 5 / 5 |
+| Segundo clic inmediato | 4 / 4 | 0 / 0 | 3 / 3 | 9 / 9 | 5 / 5 |
+| Un alta y un evento retirado | 5 / 5 | 1 / 1 | 3 / 3 | 11 / 10 | 6 / 6 |
+| F5 con pendientes vencidas en caché | 6 / 5 | 2 / 1 | 3 / 3 | 21 / 20 | 8 / 8 |
+| Dos clics solapados | 5 / 7 | 0 / 3 | 3 / 3 | 15 / 18 | 5 / 5 |
+| Fallo de red en la lectura de una nota | 5 / 8 | 1 / 4 | 3 / 3 | 11 / 15 | 5 / 6 |
+| Sesión caducada | 1 / 1 | 0 / 0 | 0 / 0 | 4 / 4 | 5 / 5 |
+| Recarga con sesión recuperada | 5 / 6 | 1 / 2 | 3 / 3 | 21 / 19 | 8 / 8 |
+| Ampliación a 240 actividades | 240 / 242 | 236 / 238 | 3 / 3 | 270 / 255 | 7 / 7 |
+| Actualizar con 240 actividades vigentes | 4 / 7 | 0 / 3 | 3 / 3 | 21 / 24 | 6 / 6 |
+| Segundo clic con 240 actividades | 4 / 4 | 0 / 0 | 3 / 3 | 20 / 19 | 5 / 5 |
+| F5 con caché vencida al día siguiente | 247 / 247 | 240 / 240 | 6 / 6 | 302 / 228 | 10 / 10 |
+| El TTL vence durante la lectura de tres altas | 86 / 88 | 82 / 84 | 3 / 3 | 80 / 82 | 6 / 6 |
+
+Con F5 vigente, la primera fila visible se observó a los **19 / 18 ms** desde la inicialización del fixture. En frío fueron 104 / 105 ms. Tras publicar los tres cambios en el minuto seis, el clic en 2.6.0 los mostró en las filas a los **18 ms**. En 2.5.1 ese clic dejó los tres valores anteriores. En la secuencia de prueba, la entrega apareció en la recarga del minuto 22 y ambas notas estaban actualizadas al reconsultar al día siguiente. El tiempo acumulado de JavaScript de la pestaña durante el clic con tres cambios fue 1 / 1 ms según CDP. Las duraciones incluyen trabajo del navegador y esperas locales. La latencia de Moodle UG queda por medir.
+
+### Evidencia y límites
+
+Una segunda ejecución completa sobre el código final repitió las 1.005 comprobaciones de las 28 suites con cero fallos y omisiones. En esa repetición los tres cambios aparecieron en las filas a los 17 ms, con siete solicitudes HTTP y cinco renderizados.
+
+- Con 240 actividades activas y vigentes, el primer clic adelantó tres lecturas y el siguiente adelantó cero. Las altas y las verificaciones ordinarias siguen su propia política. En el ensayo de TTL que vence durante el lote, el contador de aplazadas excluyó todas las lecturas efectivamente realizadas.
+- Con dos pestañas, la candidata hizo una lectura de sesión, tres de calendario y tres de actividad en total. Cada actividad se leyó una vez. En la referencia hubo dos lecturas de sesión y ningún GET de actividad en ese escenario.
+- Al abortar un GET adelantado de una calificación, la candidata conservó la nota anterior y aplicó el reintento existente. En la referencia el TTL evitó consultar esa nota. El techo de tres se aplica a lecturas anticipadas iniciales. Los reintentos comparten el presupuesto general. Ante caducidad de sesión, ambas versiones se detuvieron antes de consultar calendario o actividades.
+- El evento nuevo se descubrió al actualizar. El evento retirado siguió guardado y dejó de ser candidato ordinario mientras permaneció ausente. El fixture de descubrimiento también cubre actividades fuera de la ventana, eventos sin fecha utilizable, filtros y límites de filas. El motivo de una desaparición específica en Moodle real requerirá observación allí.
+- El manifiesto conserva `storage` como único permiso. Se utilizaron los detectores y rutas existentes. Las mediciones emplearon datos ficticios. Los recursos MIT y CC0 permanecen en el árbol público.
+- El benchmark Node de políticas históricas también terminó para 20, 60, 100, 500 y 1.000 actividades. La comparación directa entre 2.5.1 y 2.6.0 corresponde a las dos suites Chrome de esta sección.
+
 ## Cierre técnico antes de publicación · 18 de noviembre de 2026
 
 **APTO PARA PUBLICACIÓN.** El usuario confirmó en Moodle UG real la corrección del cambio entre Pequeño y Normal. La publicación oficial continúa sujeta a autorización posterior.

@@ -163,7 +163,7 @@ async (page,_baseline,alternative,reference)=>{
   const currentNormal=await run();
   pass(1,currentNormal.calendar.length===(refreshesCalendar?3:0)&&currentNormal.rows===(refreshesCalendar?42:40)&&
     (await ids()).includes('41')===refreshesCalendar,'Publicación anterior a Actualizar y caché vigente');
-  pass(16,currentNormal.requests===(refreshesCalendar?6:1)&&currentNormal.activity===(refreshesCalendar?2:0),'Actualizar poco después conserva estados frescos conocidos');
+  pass(16,currentNormal.requests===(production?9:refreshesCalendar?6:1)&&currentNormal.activity===(production?5:refreshesCalendar?2:0),'Actualizar comprueba las altas y aplica el cupo de lecturas anticipadas');
   if(production)check((await report()).calendarRequested===3&&currentNormal.reused===3&&currentNormal.discovered===2&&
     (await page.locator('.ugr-note').first().textContent()).includes('3 meses consultados · 3 meses con datos guardados · 2 actividades nuevas'),
     'Resumen y diagnóstico distinguen meses consultados, caché y altas');
@@ -306,8 +306,8 @@ async (page,_baseline,alternative,reference)=>{
   measurements.concurrent={sessions:concurrent.filter(x=>x.kind==='session').length,
     calendar:concurrent.filter(x=>x.kind==='calendar').length,activity:concurrent.filter(x=>x.kind==='activity').length,
     ...(production?{shared:sharedRun.calendarShared}:{})};
-  if(production)check(sharedRun.calendarRequested===0&&sharedRun.calendarReused===6&&sharedRun.calendarShared===3&&
-    sharedRun.newActivities===0,'La pestaña en espera reutiliza los tres meses y mantiene el alta');
+  if(production)check(sharedRun.calendarRequested===0&&sharedRun.checked===0&&sharedRun.shared&&sharedRun.sessionProbe==='shared'&&
+    concurrent.filter(x=>x.kind==='session').length===1&&sharedRun.newActivities===0,'La pestaña en espera reutiliza la actualización válida completa');
   await second.close();
   await settled();
 
@@ -342,8 +342,11 @@ async (page,_baseline,alternative,reference)=>{
   const statusStart=wire.length;
   await run();
   await page.getByRole('tab',{name:/Entregadas/}).click();
-  check(await rows().count()===2&&wire.slice(statusStart).filter(r=>r.kind==='activity').every(r=>r.id>40),
-    'Actualizar conserva dos entregas confirmadas con TTL vigente y evita sus lecturas HTML');
+  const statusReads=wire.slice(statusStart).filter(r=>r.kind==='activity').map(r=>r.id);
+  check(await rows().count()===2&&(production?
+    statusReads.length===5&&statusReads.includes(1)&&statusReads.includes(41)&&statusReads.includes(42):
+    statusReads.every(id=>id>40)),
+    'Actualizar conserva dos entregas confirmadas y limita las lecturas de estados vigentes');
 
   check(currentNormal.calendar.join()===(refreshesCalendar?'1,11,12':'')&&currentNormal.errors===0&&
     currentNormal.stored===(refreshesCalendar?42:40),'Comparación directa de calendario, altas y errores');

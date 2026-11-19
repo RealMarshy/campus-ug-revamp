@@ -2,7 +2,7 @@
   'use strict';
   if (document.getElementById('ugr-panel')) return;
   const C = UGCore, CFG = C.CONFIG, MODS = C.mods, ORIGIN = location.origin;
-  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.5.1';
+  const VERSION = chrome.runtime?.getManifest?.()?.version ?? '2.6.0';
   const SESSION_REDIRECT_RETRY_MS=30_000;
   const session = C.identity(document);
   const prefix = `ugr2:${ORIGIN}:${session.userId}:`;
@@ -12,6 +12,7 @@
   const presentationKey=prefix+'presentation';
   let stamps={}, calendarTimes={}, calendarRefreshes={}, exhaustiveAt=0, refreshSessionAt=0, history={schema:1,changes:[]};
   let failures={}, incidents=[], lastRun={};
+  let lastRefreshBatchAt=0;
   const failurePhases=new Map();
   const TABS = C.categories.map((id,index)=>({id,label:['Próximas','Atrasadas','Entregadas','Pendientes','Sin verificar'][index]}));
   const TYPES = Object.entries({assign:'Tareas',quiz:'Cuestionarios',forum:'Foros',feedback:'Encuestas'});
@@ -98,6 +99,8 @@
     const stored=data[stampKey];
     if(stored!==undefined && (stored?.schema!==1||!stored.records||typeof stored.records!=='object'||Array.isArray(stored.records)))throw new Error('Formato de verificaciones no compatible.');
     stamps={};
+    lastRefreshBatchAt=Number.isSafeInteger(stored?.lastRefreshBatchAt)&&stored.lastRefreshBatchAt>0&&stored.lastRefreshBatchAt<=Date.now()
+      ? stored.lastRefreshBatchAt:0;
     lastPeriodicRun=Number.isFinite(stored?.lastPeriodicRun)&&stored.lastPeriodicRun>0&&stored.lastPeriodicRun<=Date.now()
       ? stored.lastPeriodicRun:0;
     exhaustiveAt=Number.isFinite(stored?.exhaustiveAt)&&stored.exhaustiveAt<=performance.timeOrigin+performance.now()
@@ -181,7 +184,7 @@
     if(changes.length)values[historyKey]=next;
     if(saveStamps)values[stampKey]={schema:1,records:stamps,calendar:calendarTimes,exhaustiveAt,
       ...(Object.keys(calendarRefreshes).length?{calendarRefreshes}:{}),...(lastPeriodicRun?{lastPeriodicRun}:{}),
-      ...(refreshSessionAt?{refreshSessionAt}:{})};
+      ...(refreshSessionAt?{refreshSessionAt}:{}),...(lastRefreshBatchAt?{lastRefreshBatchAt}:{})};
     try{await chrome.storage.local.set(values);}
     catch{throw C.problem('STORAGE');}
     history=next;
@@ -289,6 +292,7 @@
     state.progress=periodic?'Actualización periódica en curso…':mode==='one'?'Consultando actividad…':'Comprobando sesión…';render();
     let errors=0, calendarErrors=0, skipped=0, checked=0, calendarWaiting=0;
     let calendarRequested=0, calendarReused=0, calendarShared=0, newActivities=0;
+    let refreshChecked=0, refreshDeferred=0, gradesUpdated=0;
     const refreshedRecent=[];
     const changes=[];
     const retryQueue=new Map(), timeoutPhase={headers:0,body:0};
@@ -297,7 +301,7 @@
     let finalMessage='';
     let archived=0, reactivated=0, cacheHits=0, changed=0, detected=0, unknownClose=0, shared=false, saveStamps=periodic;
     const recovered={forum:0,assign:0,quiz:0,feedback:0};
-    let quizOpening,assignGroup,sessionProbe,refreshRedirect=false;
+    let quizOpening,assignGroup,sessionProbe,refreshRedirect=false,refreshComplete=false;
     const recognizedAbsences={quiz_no_attempts:0,quiz_unavailable:0,quiz_not_yet_open:0,quiz_scheduled:0,quiz_closed_unknown:0};
     lastRun={mode,trigger,manual,checked:0,activityErrors:0,calendarErrors:0,skipped:0,recovered,recognizedAbsences};
     try{
@@ -381,6 +385,8 @@
       assertSession();
       const unique=candidates(periodic&&!recentOnly?'normal':mode,target)
         .sort((a,b)=>Math.abs(a.it.due-Date.now()/1000)-Math.abs(b.it.due-Date.now()/1000));
+      const refreshPlan=refresh?C.planRefresh(unique,{...state.store,failures,stamps,lastBatchAt:lastRefreshBatchAt,now:Date.now()}):null;
+      refreshDeferred=refreshPlan?.eligible.size??0;
       // Revisit at most two matching pre-Moove failures per automatic run, under the existing account lock.
       const upgraded=manual?new Set():new Set(unique.filter(({it})=>{
         const id=key(it), failure=failures[id];
@@ -395,7 +401,9 @@
           if(mode==='one' && stamp?.observedAt>=requestedAt){shared=true;return;}
           const policy=C.verificationDecision({item:it,status:previous,manual:state.store.manual[id],failure,stamp,closeAt,mode});
           const decision=serverWaiting(failure)&&!force&&mode!=='one'&&(policy==='check'||upgraded.has(id))?'backoff':upgraded.has(id)?'check':policy;
-          if(decision!=='check'){
+          const advance=refreshPlan?.selected.has(id)&&(decision==='cache'||decision==='archive');
+          if(advance)refreshChecked++;
+          if(decision!=='check'&&!advance){
             metrics.cacheHits++;
             if(decision==='cache')cacheHits++;
             if(decision==='backoff')skipped++;
@@ -403,6 +411,7 @@
             return;
           }
           if(checkPriority){await checkPriority();if(!proceed())return;}
+          if(refreshPlan?.eligible.has(id))refreshDeferred--;
           checked++;
         }else{
           retriesAttempted++;
@@ -422,6 +431,7 @@
             status={...previous,t:status.t,closed:status.closed,...(it.mod==='quiz'&&stamp?.stateAt===previous.t?{grade:stamp.grade}:{})};
           }
           const closedAt=!status.absence && status.closed && closeAt && (status.t>closeAt||it.mod==='feedback'&&status.t===closeAt) ? closeAt:null;
+          if(previous&&status.grade&&status.grade!==(stamp?.stateAt===previous.t?stamp.grade:null))gradesUpdated++;
           if(stamp?.closedAt && stamp.closedAt!==closedAt)reactivated++;
           if(!previous||previous.done!==status.done||previous.source!==status.source||previous.absence!==status.absence||previous.available!==status.available||previous.feedbackState!==status.feedbackState||previous.evaluationGrade!==status.evaluationGrade||previous.quizOpenAt!==status.quizOpenAt||previous.assignAvailability!==status.assignAvailability){
             const value={done:status.done,source:status.source,t:status.t,...(status.absence?{absence:status.absence}:{}),
@@ -494,7 +504,7 @@
       const pending=errors||calendarErrors?'Hay comprobaciones pendientes.':'';
       if(cancelled)finalMessage='Reverificación cancelada.';
       else if(mode==='one'){
-        const result=shared?'Se usó el resultado de la comprobación en curso.':errors?(issues?'No se pudo comprobar la actividad.':pending):!checked?'Actividad no disponible.':changed?'Se actualizó la información de la actividad.':'Actividad verificada. Sin cambios.';
+        const result=shared?'Se usó el resultado de la comprobación en curso.':errors?(issues?'No se pudo comprobar la actividad.':pending):!checked?'Actividad no disponible.':changed||gradesUpdated?'Se actualizó la información de la actividad.':'Actividad verificada. Sin cambios.';
         finalMessage=(issues?'Actualización finalizada con problemas. ':'Actualización finalizada. ')+result;
       }else if(force){
         finalMessage=joinStatus(issues?'Actualización finalizada con problemas.':'Actualización finalizada.',
@@ -507,7 +517,11 @@
         finalMessage=`${heading}${issues?' con problemas':''}. `+joinStatus(
           `${calendarRequested} meses consultados`,`${calendarReused} meses con datos guardados`,
           `${newActivities} actividades nuevas`,`${checked} actividades comprobadas`,
+          refresh?`${cacheHits+archived} con resultado guardado`:'',
+          refresh&&gradesUpdated?`${gradesUpdated} calificaciones nuevas o actualizadas`:'',
+          refreshDeferred?`${refreshDeferred} verificaciones anticipadas pendientes`:'',
           pending||(calendarWaiting||skipped?'Hay comprobaciones pendientes':''));
+        refreshComplete=refresh&&!errors&&!calendarErrors&&!calendarWaiting&&!skipped;
       }
     }catch(e){
       if(cancelled)finalMessage='Reverificación cancelada.';
@@ -525,13 +539,16 @@
       if(!stopped){
         if(force){state.progress='Terminando la actualización…';render();}
         const finishedAt=performance.timeOrigin+performance.now();
-        if(refreshRedirect&&!cancelled){refreshSessionAt=finishedAt;saveStamps=true;}
+        // A queued refresh can consume the completed result without issuing another session GET.
+        if((refreshRedirect||refreshComplete)&&!cancelled){refreshSessionAt=finishedAt;saveStamps=true;}
+        if(refreshChecked){lastRefreshBatchAt=Date.now();saveStamps=true;}
         if(!cancelled)for(const month of refreshedRecent)calendarRefreshes[month]=finishedAt;
         try{await append(changes,saveStamps);}catch{fail('No se guardaron los cambios de esta ejecución. Comprueba el espacio disponible.');}
         state.progress=finalMessage||'Sincronización detenida. Revisa el aviso o consulta Diagnóstico.';
       }else state.progress='Sincronización detenida.';
       metrics.syncMs=Math.round(performance.now()-start);
       lastRun={mode,trigger,manual,checked,activityErrors:errors,calendarErrors,skipped,calendarWaiting,
+        ...(refresh?{refreshChecked,refreshDeferred}:{}),...(gradesUpdated?{gradesUpdated}:{}),
         ...(quizOpening?{quizOpening}:{}),...(assignGroup?{assignGroup}:{}),...(sessionProbe?{sessionProbe}:{}),calendarRequested,calendarReused,calendarShared,newActivities,recovered,recognizedAbsences,detected,unknownClose,changed,archived,reactivated,cacheHits,shared,reverified:force||mode==='one'?checked:0,durationMs:metrics.syncMs,
         initialChecked:checked,initialErrors,retriesAttempted,recoveredAfterRetry,persistentErrors,
         initialDurationMs,recoveryDurationMs,retryConcurrency:retriesAttempted?1:0,timeoutPhase,recoveryDeferred:retryQueue.size-retriesAttempted,cancelled};
